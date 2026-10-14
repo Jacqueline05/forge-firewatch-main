@@ -147,28 +147,63 @@ st.markdown(
     <div class="hero">
         <div class="eyebrow">FORGEX6 • SARAWAK AND BORNEO</div>
         <h1>🔥 Borneo FireWatch</h1>
-        <p>Harmonizing satellite observations to make potential fire activity
-        easier to explore, compare, and explain.</p>
+        <p>Making satellite heat signals easier for everyone to explore,
+        compare, and understand.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
+with st.expander("Start here: what am I looking at?", expanded=True):
+    st.markdown(
+        """
+        Borneo FireWatch compares heat signals seen by two NASA satellites.
+        A dot on the map is a **possible hotspot**, not proof of a fire.
+
+        - **Colors** show which satellite detected the signal.
+        - **Larger dots** represent higher satellite confidence.
+        - **Matched** means both satellites saw signals close together in
+          time and location.
+        - Use the filters on the left to ask simple questions, such as
+          “Where do both satellites agree?”
+        """
+    )
+
 with st.sidebar:
-    st.header("Explore the data")
-    st.caption("Adjust the analysis thresholds and compare observation sources.")
+    st.header("Explore the map")
+    st.caption("Use these simple controls to focus the story you want to see.")
     sources = st.multiselect(
-        "Satellite source",
+        "Which satellite signals should we show?",
         options=["MODIS", "VIIRS"],
         default=["MODIS", "VIIRS"],
+        help="Choose one or both satellite sources.",
     )
-    confidence = st.slider("Minimum confidence", 0, 100, 0)
-    max_minutes = st.slider("Matching time window (minutes)", 5, 120, 30)
-    max_distance_km = st.slider("Matching radius (km)", 1.0, 25.0, 5.0, step=0.5)
+    confidence = st.slider(
+        "How certain should a signal be?",
+        0,
+        100,
+        0,
+        help="Higher values show only stronger satellite signals.",
+    )
+    max_minutes = st.slider(
+        "How close in time should signals be?",
+        5,
+        120,
+        30,
+        help="This helps compare signals detected near the same time.",
+    )
+    max_distance_km = st.slider(
+        "How close on the map?",
+        1.0,
+        25.0,
+        5.0,
+        step=0.5,
+        help="This helps compare signals detected near the same place.",
+    )
     map_mode = st.radio(
-        "Map visualization",
-        ["Observation explorer", "Activity density"],
-        help="Use the timeline to replay observations or density mode to reveal concentration.",
+        "How should we show the map?",
+        ["Individual signals", "Signal concentration"],
+        help="Use individual signals for detail or concentration to see patterns.",
     )
     uploaded_file = st.file_uploader(
         "Upload NASA FIRMS-compatible CSV",
@@ -197,10 +232,10 @@ matched = int((result["match_status"] == "matched").sum())
 matched_pairs = matched // 2
 match_rate = (matched / len(result) * 100) if len(result) else 0
 col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Observations", len(result))
-col2.metric("Potential matches", matched_pairs)
-col3.metric("Match rate", f"{match_rate:.0f}%")
-col4.metric("Regions represented", result["region"].nunique())
+col1.metric("Signals shown", len(result), help="Total satellite heat signals after filters.")
+col2.metric("Signals seen by both", matched_pairs)
+col3.metric("Agreement rate", f"{match_rate:.0f}%")
+col4.metric("Areas represented", result["region"].nunique())
 col5.metric("Data quality", f"{quality_score(data)}%")
 
 if result.empty:
@@ -226,7 +261,7 @@ else:
         "lat": float(map_data["latitude"].mean()),
         "lon": float(map_data["longitude"].mean()),
     }
-    if map_mode == "Activity density":
+    if map_mode == "Signal concentration":
         map_chart = px.density_mapbox(
             map_data,
             lat="latitude",
@@ -263,15 +298,15 @@ else:
     )
     map_chart.update_traces(marker={"opacity": 0.88})
     st.plotly_chart(map_chart, use_container_width=True)
-    if map_mode == "Observation explorer":
+    if map_mode == "Individual signals":
         st.caption(
-            "Use the timeline controls to replay observations by date. Marker size "
-            "represents confidence; color identifies the satellite source."
+            "Use the timeline controls to replay signals by date. Marker size "
+            "shows confidence; color identifies the satellite source."
         )
     else:
         st.caption(
-            "Density mode highlights areas where higher-confidence observations "
-            "concentrate. It does not represent burned area or fire intensity."
+            "This view highlights areas where stronger signals cluster. It does "
+            "not represent burned area or fire intensity."
         )
 
 left, right = st.columns((1.25, 1))
@@ -369,7 +404,7 @@ with table_col:
         mime="text/csv",
     )
 
-with st.expander("How should this result be interpreted?"):
+with st.expander("Glossary and responsible use"):
     st.markdown(
         """
         **Matched** means MODIS and VIIRS observations fall within the selected
