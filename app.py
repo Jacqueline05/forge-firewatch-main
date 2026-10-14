@@ -12,6 +12,66 @@ from firewatch.auth import authenticate  # noqa: E402
 
 DATA_PATH = Path(__file__).parent / "data" / "sample_hotspots.csv"
 
+
+def load_observations(uploaded_file=None) -> pd.DataFrame:
+    """Load demo data or normalize common NASA FIRMS CSV fields."""
+    observations = pd.read_csv(uploaded_file or DATA_PATH)
+    columns = {column.lower(): column for column in observations.columns}
+
+    if "source" not in observations and columns.get("satellite"):
+        observations["source"] = observations[columns["satellite"]].map(
+            lambda value: "MODIS"
+            if str(value).upper() in {"MODIS", "TERRA", "AQUA"}
+            else "VIIRS"
+        )
+    if "observed_at" not in observations and columns.get("acq_date"):
+        time_column = columns.get("acq_time")
+        times = (
+            observations[time_column].fillna(0).astype(str).str.zfill(4)
+            if time_column
+            else "0000"
+        )
+        observations["observed_at"] = pd.to_datetime(
+            observations[columns["acq_date"]].astype(str)
+            + " "
+            + times.str[:2]
+            + ":"
+            + times.str[2:]
+            + ":00",
+            errors="coerce",
+            utc=True,
+        )
+    if "confidence" not in observations and columns.get("confidence"):
+        confidence = observations[columns["confidence"]]
+        observations["confidence"] = confidence.astype(str).str.lower().map(
+            {"l": 30, "n": 60, "h": 90}
+        ).fillna(pd.to_numeric(confidence, errors="coerce"))
+    if "region" not in observations:
+        observations["region"] = "Borneo"
+    if "id" not in observations:
+        observations["id"] = [f"OBS-{i:04d}" for i in range(len(observations))]
+
+    required = ["id", "source", "observed_at", "latitude", "longitude", "confidence"]
+    missing = [column for column in required if column not in observations]
+    if missing:
+        raise ValueError(f"Missing required fields: {', '.join(missing)}")
+    observations["observed_at"] = pd.to_datetime(
+        observations["observed_at"], errors="coerce", utc=True
+    )
+    return observations.dropna(subset=required).copy()
+
+
+def quality_score(observations: pd.DataFrame) -> int:
+    checks = [
+        observations["observed_at"].notna().all(),
+        observations["latitude"].between(-90, 90).all(),
+        observations["longitude"].between(-180, 180).all(),
+        observations["source"].isin({"MODIS", "VIIRS"}).all(),
+        observations["id"].is_unique,
+    ]
+    return round(sum(checks) / len(checks) * 100)
+
+
 st.set_page_config(
     page_title="Borneo FireWatch",
     page_icon="🔥",
@@ -94,9 +154,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-data = pd.read_csv(DATA_PATH)
-data["observed_at"] = pd.to_datetime(data["observed_at"], utc=True)
-
 with st.sidebar:
     st.header("Explore the data")
     st.caption("Adjust the analysis thresholds and compare observation sources.")
@@ -107,9 +164,20 @@ with st.sidebar:
     )
     confidence = st.slider("Minimum confidence", 0, 100, 0)
     max_minutes = st.slider("Matching time window (minutes)", 5, 120, 30)
+    uploaded_file = st.file_uploader(
+        "Upload NASA FIRMS-compatible CSV",
+        type=["csv"],
+        help="Accepts the project schema or common FIRMS fields such as acq_date.",
+    )
     if st.button("Sign out"):
         st.session_state["authenticated"] = False
         st.rerun()
+
+try:
+    data = load_observations(uploaded_file)
+except ValueError as error:
+    st.error(f"Data could not be loaded: {error}")
+    st.stop()
 
 filtered = data[
     data["source"].isin(sources) & (data["confidence"] >= confidence)
@@ -119,17 +187,35 @@ result = harmonize(filtered, MatchConfig(max_minutes=max_minutes))
 matched = int((result["match_status"] == "matched").sum())
 matched_pairs = matched // 2
 match_rate = (matched / len(result) * 100) if len(result) else 0
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Observations", len(result))
 col2.metric("Potential matches", matched_pairs)
 col3.metric("Match rate", f"{match_rate:.0f}%")
 col4.metric("Regions represented", result["region"].nunique())
+col5.metric("Data quality", f"{quality_score(data)}%")
 
 st.subheader("Unified hotspot map")
 if result.empty:
     st.warning("No observations match the current filters.")
 else:
-    st.map(result, latitude="latitude", longitude="longitude", color="#ff4b4b")
+    map_chart = px.scatter_mapbox(
+        result,
+        lat="latitude",
+        lon="longitude",
+        color="source",
+        size="confidence",
+        hover_name="id",
+        hover_data=["region", "observed_at", "match_status"],
+        zoom=4,
+        height=520,
+        mapbox_style="open-street-map",
+        color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
+    )
+    map_chart.update_layout(
+        margin=dict(t=0, b=0, l=0, r=0),
+        legend_title_text="Satellite source",
+    )
+    st.plotly_chart(map_chart, use_container_width=True)
 
 left, right = st.columns((1.25, 1))
 with left:
@@ -195,6 +281,26 @@ with table_col:
         ],
         use_container_width=True,
         hide_index=True,
+    )
+    st.download_button(
+        "Download filtered results",
+        data=result.to_csv(index=False).encode("utf-8"),
+        file_name="borneo-firewatch-harmonized-results.csv",
+        mime="text/csv",
+    )
+
+with st.expander("How should this result be interpreted?"):
+    st.markdown(
+        """
+        **Matched** means MODIS and VIIRS observations fall within the selected
+        time and distance thresholds. It is a candidate relationship, not
+        confirmation that both satellites observed the same fire.
+
+        Use the confidence filter to focus the review, compare source coverage,
+        and download the filtered evidence for team discussion. A hotspot is a
+        thermal anomaly and should be verified with authoritative sources before
+        operational decisions.
+        """
     )
 
 st.info(
