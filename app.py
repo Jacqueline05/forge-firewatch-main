@@ -231,195 +231,220 @@ result = harmonize(
 matched = int((result["match_status"] == "matched").sum())
 matched_pairs = matched // 2
 match_rate = (matched / len(result) * 100) if len(result) else 0
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Signals shown", len(result), help="Total satellite heat signals after filters.")
-col2.metric("Signals seen by both", matched_pairs)
-col3.metric("Agreement rate", f"{match_rate:.0f}%")
-col4.metric("Areas represented", result["region"].nunique())
-col5.metric("Data quality", f"{quality_score(data)}%")
+overview_tab, analysis_tab, guide_tab = st.tabs(
+    ["Overview", "Explore signals", "Guide and methodology"]
+)
 
-if result.empty:
-    st.warning("No observations match the current filters. Try widening the thresholds.")
-elif match_rate >= 50:
-    st.success(
-        f"Insight: {match_rate:.0f}% of filtered observations participate in a "
-        "potential cross-satellite match."
-    )
-else:
-    st.info(
-        f"Insight: {match_rate:.0f}% of filtered observations participate in a "
-        "potential match; source coverage differs in this view."
-    )
+with overview_tab:
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Signals shown", len(result), help="Total heat signals after filters.")
+    col2.metric("Signals seen by both", matched_pairs)
+    col3.metric("Agreement rate", f"{match_rate:.0f}%")
+    col4.metric("Areas represented", result["region"].nunique())
+    col5.metric("Data quality", f"{quality_score(data)}%")
 
-st.subheader("Unified hotspot map")
-if result.empty:
-    st.warning("No observations match the current filters.")
-else:
-    map_data = result.copy()
-    map_data["observation_date"] = map_data["observed_at"].dt.strftime("%Y-%m-%d")
-    center = {
-        "lat": float(map_data["latitude"].mean()),
-        "lon": float(map_data["longitude"].mean()),
-    }
-    if map_mode == "Signal concentration":
-        map_chart = px.density_mapbox(
-            map_data,
-            lat="latitude",
-            lon="longitude",
-            z="confidence",
-            radius=28,
-            center=center,
-            zoom=4,
-            height=520,
-            mapbox_style="open-street-map",
-            color_continuous_scale=["#073b3a", "#2a9d8f", "#f4a261", "#e76f51"],
+    if result.empty:
+        st.warning("No signals match the current filters. Try widening the thresholds.")
+    elif match_rate >= 50:
+        st.success(
+            f"Insight: {match_rate:.0f}% of filtered signals participate in a "
+            "potential cross-satellite match."
         )
     else:
-        map_chart = px.scatter_mapbox(
-            map_data,
-            lat="latitude",
-            lon="longitude",
+        st.info(
+            f"Insight: {match_rate:.0f}% of filtered signals participate in a "
+            "potential match; source coverage differs in this view."
+        )
+
+    st.subheader("Unified hotspot map")
+    if result.empty:
+        st.warning("No signals are available for the map.")
+    else:
+        map_data = result.copy()
+        map_data["observation_date"] = map_data["observed_at"].dt.strftime("%Y-%m-%d")
+        center = {
+            "lat": float(map_data["latitude"].mean()),
+            "lon": float(map_data["longitude"].mean()),
+        }
+        if map_mode == "Signal concentration":
+            map_chart = px.density_mapbox(
+                map_data,
+                lat="latitude",
+                lon="longitude",
+                z="confidence",
+                radius=28,
+                center=center,
+                zoom=4,
+                height=520,
+                mapbox_style="open-street-map",
+                color_continuous_scale=[
+                    "#073b3a",
+                    "#2a9d8f",
+                    "#f4a261",
+                    "#e76f51",
+                ],
+            )
+        else:
+            map_chart = px.scatter_mapbox(
+                map_data,
+                lat="latitude",
+                lon="longitude",
+                color="source",
+                size="confidence",
+                hover_name="id",
+                hover_data=["region", "observed_at", "match_status", "confidence"],
+                animation_frame="observation_date",
+                size_max=28,
+                center=center,
+                zoom=4,
+                height=520,
+                mapbox_style="open-street-map",
+                color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
+            )
+        map_chart.update_layout(
+            margin=dict(t=0, b=0, l=0, r=0),
+            legend_title_text="Satellite source",
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
+        map_chart.update_traces(marker={"opacity": 0.88})
+        st.plotly_chart(map_chart, use_container_width=True)
+        if map_mode == "Individual signals":
+            st.caption(
+                "Use the timeline to replay signals by date. Marker size shows "
+                "confidence; color identifies the satellite source."
+            )
+        else:
+            st.caption(
+                "This view highlights areas where stronger signals cluster. It "
+                "does not represent burned area or fire intensity."
+            )
+
+with analysis_tab:
+    left, right = st.columns((1.25, 1))
+    with left:
+        st.subheader("Observation trends")
+        daily = (
+            result.assign(date=result["observed_at"].dt.date)
+            .groupby(["date", "source"], as_index=False)
+            .size()
+            .rename(columns={"size": "observations"})
+        )
+        chart = px.line(
+            daily,
+            x="date",
+            y="observations",
             color="source",
-            size="confidence",
-            hover_name="id",
-            hover_data=["region", "observed_at", "match_status", "confidence"],
-            animation_frame="observation_date",
-            size_max=28,
-            center=center,
-            zoom=4,
-            height=520,
-            mapbox_style="open-street-map",
-            color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
+            markers=True,
+            template="plotly_white",
         )
-    map_chart.update_layout(
-        margin=dict(t=0, b=0, l=0, r=0),
-        legend_title_text="Satellite source",
-        paper_bgcolor="rgba(0,0,0,0)",
-    )
-    map_chart.update_traces(marker={"opacity": 0.88})
-    st.plotly_chart(map_chart, use_container_width=True)
-    if map_mode == "Individual signals":
-        st.caption(
-            "Use the timeline controls to replay signals by date. Marker size "
-            "shows confidence; color identifies the satellite source."
-        )
-    else:
-        st.caption(
-            "This view highlights areas where stronger signals cluster. It does "
-            "not represent burned area or fire intensity."
-        )
+        chart.update_layout(legend_title_text="Satellite")
+        st.plotly_chart(chart, use_container_width=True)
 
-left, right = st.columns((1.25, 1))
-with left:
-    st.subheader("Observation trends")
-    daily = (
-        result.assign(date=result["observed_at"].dt.date)
-        .groupby(["date", "source"], as_index=False)
+    with right:
+        st.subheader("Confidence by source")
+        confidence_chart = px.box(
+            result,
+            x="source",
+            y="confidence",
+            color="source",
+            points="all",
+            template="plotly_white",
+        )
+        confidence_chart.update_layout(
+            showlegend=False, yaxis_title="Confidence score"
+        )
+        st.plotly_chart(confidence_chart, use_container_width=True)
+
+    st.subheader("Regional activity comparison")
+    regional = (
+        result.groupby(["region", "source"], as_index=False)
         .size()
         .rename(columns={"size": "observations"})
     )
-    chart = px.line(
-        daily,
-        x="date",
+    region_chart = px.bar(
+        regional,
+        x="region",
         y="observations",
         color="source",
-        markers=True,
+        barmode="group",
+        text_auto=True,
         template="plotly_white",
+        color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
     )
-    chart.update_layout(legend_title_text="Satellite")
-    st.plotly_chart(chart, use_container_width=True)
-
-with right:
-    st.subheader("Confidence by source")
-    confidence_chart = px.box(
-        result,
-        x="source",
-        y="confidence",
-        color="source",
-        points="all",
-        template="plotly_white",
+    region_chart.update_layout(
+        xaxis_title="Study region",
+        yaxis_title="Observations",
+        legend_title_text="Satellite source",
     )
-    confidence_chart.update_layout(showlegend=False, yaxis_title="Confidence score")
-    st.plotly_chart(confidence_chart, use_container_width=True)
+    st.plotly_chart(region_chart, use_container_width=True)
 
-st.subheader("Regional activity comparison")
-regional = (
-    result.groupby(["region", "source"], as_index=False)
-    .size()
-    .rename(columns={"size": "observations"})
-)
-region_chart = px.bar(
-    regional,
-    x="region",
-    y="observations",
-    color="source",
-    barmode="group",
-    text_auto=True,
-    template="plotly_white",
-    color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
-)
-region_chart.update_layout(
-    xaxis_title="Study region",
-    yaxis_title="Observations",
-    legend_title_text="Satellite source",
-)
-st.plotly_chart(region_chart, use_container_width=True)
-
-st.subheader("Harmonization results")
-status_counts = (
-    result["match_status"].value_counts().rename_axis("status").reset_index(name="count")
-)
-status_col, table_col = st.columns((0.8, 1.7))
-with status_col:
-    status_chart = px.pie(
-        status_counts,
-        names="status",
-        values="count",
-        hole=0.45,
-        color_discrete_sequence=["#2a9d8f", "#f4a261", "#e76f51"],
+    st.subheader("Harmonization results")
+    status_counts = (
+        result["match_status"]
+        .value_counts()
+        .rename_axis("status")
+        .reset_index(name="count")
     )
-    status_chart.update_layout(showlegend=True, margin=dict(t=10, b=10, l=10, r=10))
-    st.plotly_chart(status_chart, use_container_width=True)
+    status_col, table_col = st.columns((0.8, 1.7))
+    with status_col:
+        status_chart = px.pie(
+            status_counts,
+            names="status",
+            values="count",
+            hole=0.45,
+            color_discrete_sequence=["#2a9d8f", "#f4a261", "#e76f51"],
+        )
+        status_chart.update_layout(
+            showlegend=True, margin=dict(t=10, b=10, l=10, r=10)
+        )
+        st.plotly_chart(status_chart, use_container_width=True)
 
-with table_col:
-    st.dataframe(
-        result[
-            [
-                "id",
-                "source",
-                "observed_at",
-                "region",
-                "confidence",
-                "match_status",
-                "matched_id",
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.download_button(
-        "Download filtered results",
-        data=result.to_csv(index=False).encode("utf-8"),
-        file_name="borneo-firewatch-harmonized-results.csv",
-        mime="text/csv",
-    )
+    with table_col:
+        st.dataframe(
+            result[
+                [
+                    "id",
+                    "source",
+                    "observed_at",
+                    "region",
+                    "confidence",
+                    "match_status",
+                    "matched_id",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.download_button(
+            "Download filtered results",
+            data=result.to_csv(index=False).encode("utf-8"),
+            file_name="borneo-firewatch-harmonized-results.csv",
+            mime="text/csv",
+        )
 
-with st.expander("Glossary and responsible use"):
+with guide_tab:
+    st.subheader("How should this result be interpreted?")
     st.markdown(
         """
-        **Matched** means MODIS and VIIRS observations fall within the selected
-        time and distance thresholds. It is a candidate relationship, not
+        **Matched** means MODIS and VIIRS signals fall within the selected time
+        and distance thresholds. It is a candidate relationship, not
         confirmation that both satellites observed the same fire.
 
         Use the confidence filter to focus the review, compare source coverage,
-        and download the filtered evidence for team discussion. A hotspot is a
-        thermal anomaly and should be verified with authoritative sources before
+        and download evidence for team discussion. A hotspot is a thermal
+        anomaly and should be verified with authoritative sources before
         operational decisions.
         """
     )
-
-st.info(
-    "A hotspot is a detected thermal anomaly, not confirmation of a fire. "
-    "This prototype uses demonstration data until official NASA FIRMS data "
-    "access and challenge requirements are confirmed."
-)
+    st.subheader("About the project")
+    st.write(
+        "Borneo FireWatch is an exploratory FORGEX6 prototype for Sarawak and "
+        "Borneo. It uses demonstration data until official NASA FIRMS access "
+        "and challenge requirements are confirmed."
+    )
+    st.subheader("Data safety note")
+    st.info(
+        "A hotspot is not proof of a fire, burned area, or haze concentration. "
+        "This dashboard supports exploration and communication, not emergency "
+        "response or official fire verification."
+    )
