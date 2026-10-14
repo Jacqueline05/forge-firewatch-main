@@ -164,6 +164,7 @@ with st.sidebar:
     )
     confidence = st.slider("Minimum confidence", 0, 100, 0)
     max_minutes = st.slider("Matching time window (minutes)", 5, 120, 30)
+    max_distance_km = st.slider("Matching radius (km)", 1.0, 25.0, 5.0, step=0.5)
     uploaded_file = st.file_uploader(
         "Upload NASA FIRMS-compatible CSV",
         type=["csv"],
@@ -182,7 +183,10 @@ except ValueError as error:
 filtered = data[
     data["source"].isin(sources) & (data["confidence"] >= confidence)
 ].copy()
-result = harmonize(filtered, MatchConfig(max_minutes=max_minutes))
+result = harmonize(
+    filtered,
+    MatchConfig(max_minutes=max_minutes, max_distance_km=max_distance_km),
+)
 
 matched = int((result["match_status"] == "matched").sum())
 matched_pairs = matched // 2
@@ -193,6 +197,19 @@ col2.metric("Potential matches", matched_pairs)
 col3.metric("Match rate", f"{match_rate:.0f}%")
 col4.metric("Regions represented", result["region"].nunique())
 col5.metric("Data quality", f"{quality_score(data)}%")
+
+if result.empty:
+    st.warning("No observations match the current filters. Try widening the thresholds.")
+elif match_rate >= 50:
+    st.success(
+        f"Insight: {match_rate:.0f}% of filtered observations participate in a "
+        "potential cross-satellite match."
+    )
+else:
+    st.info(
+        f"Insight: {match_rate:.0f}% of filtered observations participate in a "
+        "potential match; source coverage differs in this view."
+    )
 
 st.subheader("Unified hotspot map")
 if result.empty:
@@ -249,6 +266,29 @@ with right:
     )
     confidence_chart.update_layout(showlegend=False, yaxis_title="Confidence score")
     st.plotly_chart(confidence_chart, use_container_width=True)
+
+st.subheader("Regional activity comparison")
+regional = (
+    result.groupby(["region", "source"], as_index=False)
+    .size()
+    .rename(columns={"size": "observations"})
+)
+region_chart = px.bar(
+    regional,
+    x="region",
+    y="observations",
+    color="source",
+    barmode="group",
+    text_auto=True,
+    template="plotly_white",
+    color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
+)
+region_chart.update_layout(
+    xaxis_title="Study region",
+    yaxis_title="Observations",
+    legend_title_text="Satellite source",
+)
+st.plotly_chart(region_chart, use_container_width=True)
 
 st.subheader("Harmonization results")
 status_counts = (
