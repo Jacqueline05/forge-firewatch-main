@@ -47,7 +47,9 @@ def _distance_km(first: pd.Series, second: pd.Series) -> float:
     return float((latitude_km**2 + longitude_km**2) ** 0.5)
 
 
-def harmonize(data: pd.DataFrame, config: MatchConfig | None = None) -> pd.DataFrame:
+def harmonize(
+    data: pd.DataFrame, config: MatchConfig | None = None
+) -> pd.DataFrame:
     """Classify MODIS and VIIRS records by potential observation matches."""
     config = config or MatchConfig()
     validate_schema(data)
@@ -61,16 +63,17 @@ def harmonize(data: pd.DataFrame, config: MatchConfig | None = None) -> pd.DataF
     for modis_index, modis_row in modis.iterrows():
         for viirs_index, viirs_row in viirs.iterrows():
             minutes = abs(
-                (modis_row["observed_at"] - viirs_row["observed_at"]).total_seconds()
+                (
+                    modis_row["observed_at"] - viirs_row["observed_at"]
+                ).total_seconds()
             ) / 60
             if minutes > config.max_minutes:
                 continue
             if _distance_km(modis_row, viirs_row) > config.max_distance_km:
                 continue
-            result.loc[modis_index, ["match_status", "matched_id"]] = [
-                "matched",
-                viirs_row["id"],
-            ]
+            result.loc[
+                modis_index, ["match_status", "matched_id"]
+            ] = ["matched", viirs_row["id"]]
             result.loc[viirs_index, ["match_status", "matched_id"]] = [
                 "matched",
                 modis_row["id"],

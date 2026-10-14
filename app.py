@@ -6,7 +6,7 @@ import plotly.express as px
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from firewatch.harmonize import MatchConfig, harmonize
+from firewatch.harmonize import MatchConfig, harmonize  # noqa: E402
 
 
 DATA_PATH = Path(__file__).parent / "data" / "sample_hotspots.csv"
