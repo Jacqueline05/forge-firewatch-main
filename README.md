@@ -20,6 +20,8 @@ FIRMS data source and API credentials.
 - Classifies records as matched, MODIS-only, or VIIRS-only
 - Filters observations by satellite source and confidence
 - Displays a map and daily trend chart in Streamlit
+- Provides a team login screen and sign-out control
+- Shows confidence distributions, match-rate KPIs, and match-status breakdowns
 - Validates the harmonization logic with pytest
 
 ## Run locally
@@ -31,6 +33,17 @@ python -m venv .venv
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+### Configure team login
+
+Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and set a
+team username and password. The real `secrets.toml` file is ignored by Git and
+must never be committed.
+
+For Streamlit Cloud, add `FIREWATCH_USERNAME` and `FIREWATCH_PASSWORD` under
+the app's **Secrets** settings. This login protects the dashboard interface;
+GitHub repository access is managed separately through private-repository
+collaborators.
 
 Run the checks:
 
