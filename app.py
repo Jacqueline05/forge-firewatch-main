@@ -82,12 +82,6 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .stApp {
-        background: #f6faf8;
-    }
-    [data-testid="stHeader"] {
-        background: transparent;
-    }
     .hero {
         padding: 2rem 2.2rem;
         border-radius: 1rem;
@@ -98,35 +92,6 @@ st.markdown(
     .hero h1 { color: white; margin-bottom: .3rem; }
     .hero p { color: #e7f6f2; font-size: 1.05rem; }
     .eyebrow { color: #ffd166; text-transform: uppercase; letter-spacing: .12em; font-weight: 700; }
-    .login-shell {
-        min-height: 70vh;
-        padding: 2.5rem;
-        border-radius: 1.5rem;
-        background: linear-gradient(135deg, #073b3a 0%, #0b6e69 62%, #f4a261 145%);
-        box-shadow: 0 20px 60px rgba(7, 59, 58, .18);
-    }
-    .login-brand { color: white; padding: 2rem 1rem 1rem 0; }
-    .login-brand h1 { color: white; font-size: 3.2rem; line-height: 1.05; }
-    .login-brand p { color: #e7f6f2; font-size: 1.15rem; }
-    .login-point {
-        color: #f7fffc;
-        margin: .8rem 0;
-        font-size: 1rem;
-    }
-    .login-point span {
-        display: inline-block;
-        width: 1.7rem;
-        color: #ffd166;
-        font-weight: 800;
-    }
-    .login-card {
-        margin-top: 1rem;
-        padding: 2rem;
-        border-radius: 1rem;
-        background: rgba(255, 255, 255, .97);
-        box-shadow: 0 12px 35px rgba(0, 0, 0, .14);
-    }
-    .login-card h2 { color: #073b3a; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -144,60 +109,33 @@ def login_screen() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
-    left, right = st.columns((1.25, .75), gap="large")
-    with left:
-        st.markdown(
-            """
-            <div class="login-shell">
-                <div class="login-brand">
-                    <div class="eyebrow">FORGEX6 • NASA SPACE APPS 2026</div>
-                    <h1>🔥<br>Borneo<br>FireWatch</h1>
-                    <p>Six minds. One mission.<br>A clearer view of Earth.</p>
-                    <div class="login-point"><span>01</span>
-                        See possible heat signals across Borneo
-                    </div>
-                    <div class="login-point"><span>02</span>
-                        Compare what two satellites detected
-                    </div>
-                    <div class="login-point"><span>03</span>
-                        Explore evidence with confidence
-                    </div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with right:
-        st.markdown(
-            """
-            <div class="login-card">
-                <div class="eyebrow" style="color:#0b6e69;">TEAM WORKSPACE</div>
-                <h2>Welcome back</h2>
-                <p>Sign in to explore the FireWatch dashboard.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        with st.form("login"):
-            username = st.text_input("Username", placeholder="Enter your team username")
-            password = st.text_input(
-                "Password",
-                type="password",
-                placeholder="Enter your password",
+    st.markdown(
+        """
+        <div class="hero">
+            <div class="eyebrow">FORGEX6 • NASA Space Apps Challenge 2026</div>
+            <h1>🔥 Borneo FireWatch</h1>
+            <p>A clearer view of MODIS and VIIRS thermal-anomaly observations.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.form("login"):
+        st.subheader("Team access")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Sign in", type="primary")
+        if submitted:
+            valid = authenticate(
+                username,
+                password,
+                get_secret("FIREWATCH_USERNAME"),
+                get_secret("FIREWATCH_PASSWORD"),
             )
-            submitted = st.form_submit_button("Open FireWatch  →", type="primary")
-            if submitted:
-                valid = authenticate(
-                    username,
-                    password,
-                    get_secret("FIREWATCH_USERNAME"),
-                    get_secret("FIREWATCH_PASSWORD"),
-                )
-                if valid:
-                    st.session_state["authenticated"] = True
-                    st.rerun()
-                st.error("The username or password is not correct.")
-        st.caption("Private team dashboard • FORGEX6")
+            if valid:
+                st.session_state["authenticated"] = True
+                st.rerun()
+            st.error("Invalid credentials or login is not configured.")
+    st.caption("Team members should use the credentials provided by the project owner.")
     return False
 
 
