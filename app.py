@@ -165,6 +165,11 @@ with st.sidebar:
     confidence = st.slider("Minimum confidence", 0, 100, 0)
     max_minutes = st.slider("Matching time window (minutes)", 5, 120, 30)
     max_distance_km = st.slider("Matching radius (km)", 1.0, 25.0, 5.0, step=0.5)
+    map_mode = st.radio(
+        "Map visualization",
+        ["Observation explorer", "Activity density"],
+        help="Use the timeline to replay observations or density mode to reveal concentration.",
+    )
     uploaded_file = st.file_uploader(
         "Upload NASA FIRMS-compatible CSV",
         type=["csv"],
@@ -215,24 +220,59 @@ st.subheader("Unified hotspot map")
 if result.empty:
     st.warning("No observations match the current filters.")
 else:
-    map_chart = px.scatter_mapbox(
-        result,
-        lat="latitude",
-        lon="longitude",
-        color="source",
-        size="confidence",
-        hover_name="id",
-        hover_data=["region", "observed_at", "match_status"],
-        zoom=4,
-        height=520,
-        mapbox_style="open-street-map",
-        color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
-    )
+    map_data = result.copy()
+    map_data["observation_date"] = map_data["observed_at"].dt.strftime("%Y-%m-%d")
+    center = {
+        "lat": float(map_data["latitude"].mean()),
+        "lon": float(map_data["longitude"].mean()),
+    }
+    if map_mode == "Activity density":
+        map_chart = px.density_mapbox(
+            map_data,
+            lat="latitude",
+            lon="longitude",
+            z="confidence",
+            radius=28,
+            center=center,
+            zoom=4,
+            height=520,
+            mapbox_style="open-street-map",
+            color_continuous_scale=["#073b3a", "#2a9d8f", "#f4a261", "#e76f51"],
+        )
+    else:
+        map_chart = px.scatter_mapbox(
+            map_data,
+            lat="latitude",
+            lon="longitude",
+            color="source",
+            size="confidence",
+            hover_name="id",
+            hover_data=["region", "observed_at", "match_status", "confidence"],
+            animation_frame="observation_date",
+            size_max=28,
+            center=center,
+            zoom=4,
+            height=520,
+            mapbox_style="open-street-map",
+            color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
+        )
     map_chart.update_layout(
         margin=dict(t=0, b=0, l=0, r=0),
         legend_title_text="Satellite source",
+        paper_bgcolor="rgba(0,0,0,0)",
     )
+    map_chart.update_traces(marker={"opacity": 0.88})
     st.plotly_chart(map_chart, use_container_width=True)
+    if map_mode == "Observation explorer":
+        st.caption(
+            "Use the timeline controls to replay observations by date. Marker size "
+            "represents confidence; color identifies the satellite source."
+        )
+    else:
+        st.caption(
+            "Density mode highlights areas where higher-confidence observations "
+            "concentrate. It does not represent burned area or fire intensity."
+        )
 
 left, right = st.columns((1.25, 1))
 with left:
