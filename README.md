@@ -90,7 +90,7 @@ flake8 app.py src tests
 - Pairs each detection with at most one nearest cross-satellite observation
 - Shows the measured MODIS/VIIRS separation and a coverage circle on the map
 - Classifies records as matched, MODIS-only, or VIIRS-only
-- Filters observations by satellite source and confidence
+- Filters observations by date, region, satellite source, and confidence
 - Displays a map and daily trend chart in Streamlit
 - Provides a team login screen and sign-out control
 - Shows confidence distributions, match-rate KPIs, and match-status breakdowns

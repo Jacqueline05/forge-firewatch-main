@@ -8,6 +8,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from firewatch.harmonize import MatchConfig, harmonize  # noqa: E402
+from firewatch.filters import filter_observations  # noqa: E402
 from firewatch.map_features import (  # noqa: E402
     build_map_features,
     coverage_circle,
@@ -186,6 +187,19 @@ st.markdown(
     .hero h1 { color: white; margin-bottom: .3rem; }
     .hero p { color: #e7f6f2; font-size: 1.05rem; }
     .eyebrow { color: #ffd166; text-transform: uppercase; letter-spacing: .12em; font-weight: 700; }
+    [data-testid="stSidebarUserContent"] > div[data-testid="stVerticalBlock"] {
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 2rem);
+    }
+    .st-key-sidebar-signout {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        margin-top: auto;
+        padding-top: 0.75rem;
+        background: var(--background-color);
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -214,7 +228,6 @@ def login_screen() -> bool:
         unsafe_allow_html=True,
     )
     with st.form("login"):
-        st.subheader("Team access")
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
@@ -229,7 +242,6 @@ def login_screen() -> bool:
                 st.session_state["authenticated"] = True
                 st.rerun()
             st.error("Invalid credentials or login is not configured.")
-    st.caption("Team members should use the credentials provided by the project owner.")
     return False
 
 
@@ -307,9 +319,6 @@ with st.sidebar:
         type=["csv"],
         help="Accepts the project schema or common FIRMS fields such as acq_date.",
     )
-    if st.button("Sign out"):
-        st.session_state["authenticated"] = False
-        st.rerun()
 
 try:
     data = load_observations(uploaded_file)
@@ -317,9 +326,64 @@ except ValueError as error:
     st.error(f"Data could not be loaded: {error}")
     st.stop()
 
-filtered = data[
-    data["source"].isin(sources) & (data["confidence"] >= confidence)
-].copy()
+selected_date_range = None
+selected_regions = []
+if not data.empty:
+    observation_dates = data["observed_at"].dt.date
+    min_date = observation_dates.min()
+    max_date = observation_dates.max()
+    region_options = sorted(data["region"].dropna().astype(str).unique())
+    with st.sidebar:
+        st.subheader("Date and region")
+        selected_date_range = st.date_input(
+            "Observation date range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            help="Choose the observation dates to include.",
+        )
+        selected_regions = st.multiselect(
+            "Which regions should we show?",
+            options=region_options,
+            default=region_options,
+            help="Choose one or more regions.",
+        )
+
+with st.sidebar:
+    with st.container(key="sidebar-signout"):
+        if st.button("Sign out", use_container_width=True):
+            st.session_state["authenticated"] = False
+            st.rerun()
+
+if data.empty:
+    filtered = data.copy()
+elif isinstance(selected_date_range, (tuple, list)):
+    if len(selected_date_range) == 1:
+        range_start = range_end = selected_date_range[0]
+    elif len(selected_date_range) == 2:
+        range_start, range_end = selected_date_range
+    else:
+        range_start = range_end = None
+
+    if range_start is None or range_end is None:
+        st.warning("Select both a start and end date.")
+        filtered = data.iloc[0:0].copy()
+    elif range_start > range_end:
+        st.warning("The start date must be on or before the end date.")
+        filtered = data.iloc[0:0].copy()
+    else:
+        filtered = filter_observations(
+            data,
+            range_start,
+            range_end,
+            selected_regions,
+            sources,
+            confidence,
+        )
+else:
+    st.warning("Select a date range.")
+    filtered = data.iloc[0:0].copy()
+
 result = harmonize(
     filtered,
     MatchConfig(max_minutes=max_minutes, max_distance_km=max_distance_km),
