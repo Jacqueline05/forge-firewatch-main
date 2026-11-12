@@ -6,7 +6,6 @@ from src.firewatch.firms import (
     FirmsError,
     area_url,
     fetch_live_observations,
-    history_counts,
 )
 
 
@@ -72,19 +71,3 @@ def test_no_detections_gives_empty_frame():
 
     assert observations.empty
     assert "observed_at" in observations
-
-
-def test_history_compares_same_window_each_year():
-    header, row = MODIS_CSV.splitlines()
-
-    def fetch(url):
-        year = int(url.rsplit("/", 1)[1][:4])
-        rows = 5 if year == 2019 else 1
-        return header + "\n" + (row + "\n") * rows
-
-    history = history_counts("KEY", "Sarawak", date(2026, 9, 10), years=8, fetch=fetch)
-
-    assert history["year"].tolist() == list(range(2019, 2027))
-    assert history.set_index("year").loc[2019, "detections"] == 5
-    assert history["current"].tolist() == [False] * 7 + [True]
-    assert history["window"].iloc[-1] == "01 Sep - 10 Sep"

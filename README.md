@@ -101,8 +101,6 @@ flake8 app.py src tests
   alarm locations are flagged automatically in future data
 - **False-alarm filter:** hides FIRMS volcano/industrial/offshore detections,
   known heat sources, and reported false alarms
-- **Compare years:** this season against the same window in past years
-  (MODIS archive since 2000)
 
 **Live data:** latest MODIS and VIIRS (S-NPP, NOAA-20, NOAA-21) detections
 from NASA FIRMS for Sarawak or all of Borneo.
@@ -119,7 +117,7 @@ from NASA FIRMS for Sarawak or all of Borneo.
 
 | What | How to enable |
 |---|---|
-| Live NASA FIRMS data and year comparison | Request a free key at <https://firms.modaps.eosdis.nasa.gov/api/map_key/> and set `FIRMS_MAP_KEY` in `.streamlit/secrets.toml` |
+| Live NASA FIRMS data | Request a free key at <https://firms.modaps.eosdis.nasa.gov/api/map_key/> and set `FIRMS_MAP_KEY` in `.streamlit/secrets.toml` |
 | Peatland layer for live data | Save a peatland map for Borneo as `data/peatland.geojson` (WGS84 polygons). The demo uses illustrative areas in `data/demo_peat_illustrative.geojson`, which are **not** real peat boundaries |
 | Known heat sources | Add verified gas flares, factories, etc. to `data/known_heat_sources.csv` |
 | Where ground reports are saved | Defaults to `data/feedback.csv` (not committed). On Streamlit Cloud the file resets when the app restarts; set `FIREWATCH_FEEDBACK_PATH` to persistent storage to keep reports |
@@ -174,7 +172,7 @@ flake8 app.py src tests
 │   ├── game.py, haze_patrol.html       # Haze Patrol game
 │   ├── feedback.py                     # Ground reports
 │   ├── false_alarms.py                 # Known heat sources, FIRMS type
-│   ├── firms.py                        # NASA FIRMS live and history API
+│   ├── firms.py                        # NASA FIRMS live data API
 │   ├── places.py                       # Towns and geography helpers
 │   ├── map_features.py                 # Map pairs and coverage circles
 │   └── auth.py                         # Team login

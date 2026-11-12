@@ -15,8 +15,8 @@ UTC+08:00).
   opens on the content.
 - **Six sections** in a frosted-glass switcher; the selected one glows in
   the banner's teal-to-orange gradient:
-  📍 Today · 🔥 Fire areas · 🛰️ Satellite signals · 📈 Past years ·
-  🎮 Haze Patrol · 📘 Guide. Only the open section is drawn, so pages load
+  📍 Today · 🔥 Fire areas · 🛰️ Satellite signals · 🎮 Haze Patrol ·
+  📘 Guide. Only the open section is drawn, so pages load
   quickly, and the switcher stays available even when a data source still
   needs setting up.
 - The sign-in banner and form share one centred column.
@@ -40,7 +40,7 @@ Folded away:
 
 The data settings (data source, dates, areas, filters and advanced
 settings) only affect 📍 Today, 🔥 Fire areas and 🛰️ Satellite signals. In
-📈 Past years, 🎮 Haze Patrol and 📘 Guide they are greyed out with a 🔒 note,
+🎮 Haze Patrol and 📘 Guide they are greyed out with a 🔒 note,
 and the choices are kept for when you return.
 
 **Sign out** is always the last item at the bottom of the menu and works in
@@ -88,16 +88,6 @@ every section and data mode.
 - **Charts and data table** (folded): daily trend, confidence by satellite,
   activity by region, match-status breakdown, the full matched-results table,
   and a CSV download. MODIS is always orange and VIIRS teal.
-
-## 📈 Past years
-
-- Compares MODIS detections in the same 10-day window for each of the last
-  11 years (MODIS has a consistent record since 2000; 2015 and 2019 were major
-  haze years).
-- Shows this year's count, the past-year average and the difference, with a
-  bar chart and average line.
-- Needs a `FIRMS_MAP_KEY`; uses archive data (`MODIS_SP`) for past years and
-  near-real-time data (`MODIS_NRT`) for this year.
 
 ## 🎮 Haze Patrol
 
@@ -185,7 +175,7 @@ as the dashboard. Works with mouse or touch, on desktop and phones.
 | Setting | Where | Purpose |
 |---|---|---|
 | `FIREWATCH_USERNAME`, `FIREWATCH_PASSWORD` | `.streamlit/secrets.toml` | Team login |
-| `FIRMS_MAP_KEY` | `.streamlit/secrets.toml` | Live data and Past years |
+| `FIRMS_MAP_KEY` | `.streamlit/secrets.toml` | Live data |
 | `FIREWATCH_FEEDBACK_PATH` | `.streamlit/secrets.toml` | Where ground reports are saved (default `data/feedback.csv`) |
 | Peat map | `data/peatland.geojson` | Enables the peatland flag for live and uploaded data |
 | Known heat sources | `data/known_heat_sources.csv` | Verified gas flares, factories and other non-fire heat |
@@ -196,7 +186,7 @@ as the dashboard. Works with mouse or touch, on desktop and phones.
   (including a check that the fast matcher gives the same pairs as a
   compare-everything method, and a 6,000-record speed test), fire areas,
   peatland, scoring, smoke direction, the daily summary in both languages,
-  ground reports, false-alarm filtering, the Haze Patrol page, the FIRMS live and history client
+  ground reports, false-alarm filtering, the Haze Patrol page, the FIRMS live data client
   (with simulated responses), filters, map features and login.
 - GitHub Actions runs lint (flake8) and tests on every push and pull request.
 

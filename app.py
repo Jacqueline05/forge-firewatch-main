@@ -34,7 +34,6 @@ from firewatch.firms import (  # noqa: E402
     MAX_DAY_RANGE,
     FirmsError,
     fetch_live_observations,
-    history_counts,
 )
 from firewatch.haze import Wind, WeatherError, fetch_winds, haze_outlook  # noqa: E402
 from firewatch.peat import load_peat_layer, points_on_peat  # noqa: E402
@@ -262,11 +261,6 @@ def load_data(file_bytes: bytes | None) -> pd.DataFrame:
 @st.cache_data(show_spinner="Downloading the latest NASA FIRMS data...", ttl=1800)
 def load_live(map_key: str, area: str, day_range: int) -> pd.DataFrame:
     return fetch_live_observations(map_key, area, day_range)
-
-
-@st.cache_data(show_spinner="Downloading past years from NASA FIRMS...", ttl=86400)
-def load_history(map_key: str, area: str, end) -> pd.DataFrame:
-    return history_counts(map_key, area, end)
 
 
 @st.cache_data(show_spinner="Fetching wind forecast...", ttl=3600)
@@ -573,7 +567,6 @@ SECTIONS = {
     "today": "📍 Today",
     "fire_areas": "🔥 Fire areas",
     "signals": "🛰️ Satellite signals",
-    "past_years": "📈 Past years",
     "game": "🎮 Haze Patrol",
     "guide": "📘 Guide",
 }
@@ -736,7 +729,7 @@ def firms_key_help() -> None:
 map_key = get_secret("FIRMS_MAP_KEY")
 try:
     if locked:
-        # Past years, game and guide don't use the filtered data.
+        # The game and guide don't use the filtered data.
         data = load_data(None).iloc[0:0].copy()
     elif data_source == "Live NASA FIRMS":
         if not map_key:
@@ -1502,64 +1495,6 @@ if section == "signals":
                 file_name="borneo-firewatch-harmonized-results.csv",
                 mime="text/csv",
             )
-
-if section == "past_years":
-    st.subheader("This season compared with past years")
-    st.caption(
-        "Counts MODIS detections over the same 10-day window each year. MODIS "
-        "is used because it has a consistent record since 2000, so years can "
-        "be compared fairly (2015 and 2019 were major haze years)."
-    )
-    if not map_key:
-        st.info(
-            "**Not available yet.** This comparison downloads past years from "
-            "NASA FIRMS, which needs live data to be switched on."
-        )
-        firms_key_help()
-    else:
-        history_area = st.selectbox("Area to compare", list(AREAS), key="history_area")
-        if st.button("Compare with past years") or st.session_state.get("history_loaded"):
-            st.session_state["history_loaded"] = True
-            today_local = (pd.Timestamp.now(tz="UTC") + LOCAL_UTC_OFFSET).date()
-            try:
-                history = load_history(map_key, history_area, today_local)
-            except (FirmsError, ValueError) as error:
-                st.error(f"History could not be loaded: {error}")
-                history = pd.DataFrame()
-            if not history.empty:
-                current = history[history["current"]].iloc[0]
-                past = history[~history["current"]]
-                average = past["detections"].mean() if len(past) else 0
-                change = (
-                    (current["detections"] - average) / average * 100 if average else 0
-                )
-                cols = st.columns(3)
-                cols[0].metric(
-                    f"{current['year']} ({current['window']})", int(current["detections"])
-                )
-                cols[1].metric("Average of past years", f"{average:.0f}")
-                cols[2].metric("Difference from average", f"{change:+.0f}%")
-                history_chart = px.bar(
-                    history,
-                    x="year",
-                    y="detections",
-                    color=history["current"].map({True: "This year", False: "Past years"}),
-                    color_discrete_map={"This year": "#e76f51", "Past years": "#2a9d8f"},
-                    hover_data={"window": True},
-                )
-                history_chart.add_hline(
-                    y=average,
-                    line_dash="dot",
-                    annotation_text="Past-year average",
-                    line_color="#555",
-                )
-                history_chart.update_layout(
-                    xaxis_title="Year",
-                    yaxis_title="MODIS detections",
-                    legend_title_text="",
-                    xaxis={"dtick": 1},
-                )
-                st.plotly_chart(history_chart, use_container_width=True)
 
 if section == "game":
     components.html(haze_patrol_html(language_code), height=600)
