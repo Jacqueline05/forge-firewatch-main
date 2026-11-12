@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import cos, radians
 
+import numpy as np
 import pandas as pd
 
 
@@ -36,15 +37,72 @@ def validate_schema(data: pd.DataFrame) -> None:
         raise ValueError("longitude must be between -180 and 180")
 
 
-def _distance_km(first: pd.Series, second: pd.Series) -> float:
+def _distance_km(
+    latitude: float,
+    longitude: float,
+    other_latitudes: np.ndarray,
+    other_longitudes: np.ndarray,
+) -> np.ndarray:
     """Approximate distance for the small regional distances in this MVP."""
-    latitude_km = (first["latitude"] - second["latitude"]) * 111.0
-    longitude_km = (
-        (first["longitude"] - second["longitude"])
-        * 111.0
-        * cos(radians(first["latitude"]))
+    latitude_km = (latitude - other_latitudes) * 111.0
+    longitude_km = (longitude - other_longitudes) * 111.0 * cos(radians(latitude))
+    return np.sqrt(latitude_km**2 + longitude_km**2)
+
+
+def _find_candidates(
+    data: pd.DataFrame, config: MatchConfig
+) -> list[tuple[float, float, int, int]]:
+    """Return (distance_km, minutes, modis_position, viirs_position) pairs.
+
+    VIIRS records are sorted by time so each MODIS record is only compared
+    with VIIRS records inside its time window, instead of with every record.
+    """
+    sources = data["source"].to_numpy()
+    times_ns = (
+        data["observed_at"]
+        .dt.tz_convert("UTC")
+        .dt.tz_localize(None)
+        .to_numpy(dtype="datetime64[ns]")
+        .astype(np.int64)
     )
-    return float((latitude_km**2 + longitude_km**2) ** 0.5)
+    latitudes = data["latitude"].to_numpy(dtype=float)
+    longitudes = data["longitude"].to_numpy(dtype=float)
+
+    modis_positions = np.flatnonzero(sources == "MODIS")
+    viirs_positions = np.flatnonzero(sources == "VIIRS")
+    viirs_positions = viirs_positions[
+        np.argsort(times_ns[viirs_positions], kind="stable")
+    ]
+    viirs_times = times_ns[viirs_positions]
+    window_ns = int(np.ceil(config.max_minutes * 60 * 1e9))
+    candidates = []
+
+    for modis_position in modis_positions:
+        modis_time = times_ns[modis_position]
+        start = np.searchsorted(viirs_times, modis_time - window_ns, side="left")
+        end = np.searchsorted(viirs_times, modis_time + window_ns, side="right")
+        nearby = viirs_positions[start:end]
+        if not len(nearby):
+            continue
+
+        minutes = np.abs(modis_time - times_ns[nearby]) / 1e9 / 60
+        distances = _distance_km(
+            latitudes[modis_position],
+            longitudes[modis_position],
+            latitudes[nearby],
+            longitudes[nearby],
+        )
+        keep = (minutes <= config.max_minutes) & (
+            distances <= config.max_distance_km
+        )
+        candidates.extend(
+            (float(distance), float(minute), int(modis_position), int(viirs_position))
+            for distance, minute, viirs_position in zip(
+                distances[keep], minutes[keep], nearby[keep]
+            )
+        )
+
+    return candidates
 
 
 def harmonize(
@@ -56,34 +114,7 @@ def harmonize(
     result = data.copy()
     result["observed_at"] = pd.to_datetime(result["observed_at"], utc=True)
     records = list(result.to_dict("records"))
-    candidates = []
-
-    for modis_position, modis_row in enumerate(records):
-        if modis_row["source"] != "MODIS":
-            continue
-        for viirs_position, viirs_row in enumerate(records):
-            if viirs_row["source"] != "VIIRS":
-                continue
-            minutes = abs(
-                (
-                    modis_row["observed_at"] - viirs_row["observed_at"]
-                ).total_seconds()
-            ) / 60
-            distance_km = _distance_km(
-                pd.Series(modis_row), pd.Series(viirs_row)
-            )
-            if (
-                minutes <= config.max_minutes
-                and distance_km <= config.max_distance_km
-            ):
-                candidates.append(
-                    (
-                        distance_km,
-                        minutes,
-                        modis_position,
-                        viirs_position,
-                    )
-                )
+    candidates = _find_candidates(result, config)
 
     match_status = [
         "MODIS only" if row["source"] == "MODIS" else "VIIRS only"

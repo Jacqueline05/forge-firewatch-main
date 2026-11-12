@@ -142,3 +142,88 @@ def test_coverage_circle_uses_selected_distance_as_radius():
     assert distance_km == pytest.approx(radius_km, abs=0.01)
     assert latitudes[0] == latitudes[-1]
     assert longitudes[0] == longitudes[-1]
+
+
+def _brute_force_pairs(records, config):
+    """Reference: compare every MODIS record with every VIIRS record."""
+    from math import cos, radians
+
+    rows = records.assign(
+        observed_at=pd.to_datetime(records["observed_at"], utc=True)
+    ).to_dict("records")
+    candidates = []
+    for m, modis in enumerate(rows):
+        for v, viirs in enumerate(rows):
+            if modis["source"] != "MODIS" or viirs["source"] != "VIIRS":
+                continue
+            minutes = abs((modis["observed_at"] - viirs["observed_at"]).total_seconds()) / 60
+            lat_km = (modis["latitude"] - viirs["latitude"]) * 111.0
+            lon_km = (
+                (modis["longitude"] - viirs["longitude"])
+                * 111.0
+                * cos(radians(modis["latitude"]))
+            )
+            distance = (lat_km**2 + lon_km**2) ** 0.5
+            if minutes <= config.max_minutes and distance <= config.max_distance_km:
+                candidates.append((distance, minutes, m, v))
+
+    pairs, used_m, used_v = set(), set(), set()
+    for _, _, m, v in sorted(candidates):
+        if m not in used_m and v not in used_v:
+            pairs.add((rows[m]["id"], rows[v]["id"]))
+            used_m.add(m)
+            used_v.add(v)
+    return pairs
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_fast_matching_agrees_with_brute_force(seed):
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    count = 300
+    records = pd.DataFrame(
+        {
+            "id": [f"R{i}" for i in range(count)],
+            "source": rng.choice(["MODIS", "VIIRS"], count),
+            "observed_at": pd.Timestamp("2026-09-01", tz="UTC")
+            + pd.to_timedelta(rng.integers(0, 6 * 60, count), unit="min"),
+            "latitude": rng.uniform(1.0, 1.5, count),
+            "longitude": rng.uniform(110.0, 110.5, count),
+            "confidence": 80,
+        }
+    )
+    config = MatchConfig(max_minutes=30, max_distance_km=8.0)
+
+    result = harmonize(records, config)
+    matched = result[
+        (result["source"] == "MODIS") & (result["match_status"] == "matched")
+    ]
+    fast_pairs = set(zip(matched["id"], matched["matched_id"]))
+
+    assert fast_pairs == _brute_force_pairs(records, config)
+    assert fast_pairs
+
+
+def test_matching_handles_thousands_of_records_quickly():
+    import time
+
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    count = 6000
+    records = pd.DataFrame(
+        {
+            "id": range(count),
+            "source": ["MODIS", "VIIRS"] * (count // 2),
+            "observed_at": pd.Timestamp("2026-09-01", tz="UTC")
+            + pd.to_timedelta(rng.integers(0, 24 * 60, count), unit="min"),
+            "latitude": rng.uniform(1, 3, count),
+            "longitude": rng.uniform(110, 112, count),
+            "confidence": 80,
+        }
+    )
+
+    started = time.perf_counter()
+    harmonize(records)
+    assert time.perf_counter() - started < 10

@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 import sys
 
@@ -14,6 +15,7 @@ from firewatch.map_features import (  # noqa: E402
     coverage_circle,
 )
 from firewatch.auth import authenticate  # noqa: E402
+from firewatch.loaders import load_observations, quality_score  # noqa: E402
 
 
 DATA_PATH = Path(__file__).parent / "data" / "sample_hotspots.csv"
@@ -108,63 +110,22 @@ def _map_frame_data(
     return traces
 
 
-def load_observations(uploaded_file=None) -> pd.DataFrame:
-    """Load demo data or normalize common NASA FIRMS CSV fields."""
-    observations = pd.read_csv(uploaded_file or DATA_PATH)
-    columns = {column.lower(): column for column in observations.columns}
-
-    if "source" not in observations and columns.get("satellite"):
-        observations["source"] = observations[columns["satellite"]].map(
-            lambda value: "MODIS"
-            if str(value).upper() in {"MODIS", "TERRA", "AQUA"}
-            else "VIIRS"
-        )
-    if "observed_at" not in observations and columns.get("acq_date"):
-        time_column = columns.get("acq_time")
-        times = (
-            observations[time_column].fillna(0).astype(str).str.zfill(4)
-            if time_column
-            else "0000"
-        )
-        observations["observed_at"] = pd.to_datetime(
-            observations[columns["acq_date"]].astype(str)
-            + " "
-            + times.str[:2]
-            + ":"
-            + times.str[2:]
-            + ":00",
-            errors="coerce",
-            utc=True,
-        )
-    if "confidence" not in observations and columns.get("confidence"):
-        confidence = observations[columns["confidence"]]
-        observations["confidence"] = confidence.astype(str).str.lower().map(
-            {"l": 30, "n": 60, "h": 90}
-        ).fillna(pd.to_numeric(confidence, errors="coerce"))
-    if "region" not in observations:
-        observations["region"] = "Borneo"
-    if "id" not in observations:
-        observations["id"] = [f"OBS-{i:04d}" for i in range(len(observations))]
-
-    required = ["id", "source", "observed_at", "latitude", "longitude", "confidence"]
-    missing = [column for column in required if column not in observations]
-    if missing:
-        raise ValueError(f"Missing required fields: {', '.join(missing)}")
-    observations["observed_at"] = pd.to_datetime(
-        observations["observed_at"], errors="coerce", utc=True
+@st.cache_data(show_spinner="Loading observations...")
+def load_data(file_bytes: bytes | None) -> pd.DataFrame:
+    """Load the uploaded CSV, or the demo data when nothing is uploaded."""
+    return load_observations(
+        io.BytesIO(file_bytes) if file_bytes is not None else DATA_PATH
     )
-    return observations.dropna(subset=required).copy()
 
 
-def quality_score(observations: pd.DataFrame) -> int:
-    checks = [
-        observations["observed_at"].notna().all(),
-        observations["latitude"].between(-90, 90).all(),
-        observations["longitude"].between(-180, 180).all(),
-        observations["source"].isin({"MODIS", "VIIRS"}).all(),
-        observations["id"].is_unique,
-    ]
-    return round(sum(checks) / len(checks) * 100)
+@st.cache_data(show_spinner="Matching MODIS and VIIRS signals...")
+def run_harmonize(
+    observations: pd.DataFrame, max_minutes: int, max_distance_km: float
+) -> pd.DataFrame:
+    return harmonize(
+        observations,
+        MatchConfig(max_minutes=max_minutes, max_distance_km=max_distance_km),
+    )
 
 
 st.set_page_config(
@@ -321,7 +282,7 @@ with st.sidebar:
     )
 
 try:
-    data = load_observations(uploaded_file)
+    data = load_data(uploaded_file.getvalue() if uploaded_file else None)
 except ValueError as error:
     st.error(f"Data could not be loaded: {error}")
     st.stop()
@@ -384,10 +345,11 @@ else:
     st.warning("Select a date range.")
     filtered = data.iloc[0:0].copy()
 
-result = harmonize(
-    filtered,
-    MatchConfig(max_minutes=max_minutes, max_distance_km=max_distance_km),
-)
+try:
+    result = run_harmonize(filtered, max_minutes, max_distance_km)
+except ValueError as error:
+    st.error(f"Signals could not be matched: {error}")
+    st.stop()
 
 matched = int((result["match_status"] == "matched").sum())
 matched_pairs = matched // 2
