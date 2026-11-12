@@ -1,0 +1,520 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body {
+    margin: 0; background: transparent; overflow: hidden;
+    font-family: "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
+    color: #e6f0ef; user-select: none; -webkit-user-select: none;
+  }
+  #wrap {
+    position: relative; width: 100%; height: 590px; border-radius: 16px;
+    overflow: hidden; background: #0b1517;
+    border: 1px solid rgba(255, 255, 255, .10);
+  }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  .overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(5, 15, 17, .62); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+  }
+  .panel {
+    width: min(440px, 88%); text-align: center; padding: 22px 22px 24px; border-radius: 20px;
+    background: rgba(19, 36, 41, .88); border: 1px solid rgba(255, 255, 255, .14);
+    box-shadow: 0 14px 44px rgba(0, 0, 0, .45);
+  }
+  h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: .3px; }
+  .sub { opacity: .8; margin-bottom: 14px; font-size: 15px; }
+  .rules { text-align: left; font-size: 15px; line-height: 1.45; margin: 0 auto 18px; padding: 0; list-style: none; }
+  .rules li { margin: 7px 0; padding: 7px 10px; border-radius: 10px; background: rgba(255, 255, 255, .05); }
+  button {
+    font: inherit; font-weight: 700; font-size: 17px; color: #fff; border: 0; border-radius: 999px;
+    padding: 12px 30px; cursor: pointer;
+    background: linear-gradient(135deg, #2a9d8f, #0b6e69 60%, #f4a261);
+    box-shadow: 0 6px 22px rgba(42, 157, 143, .45);
+  }
+  button:active { transform: scale(.97); }
+  .label { opacity: .75; font-size: 14px; text-transform: uppercase; letter-spacing: .1em; }
+  .big { font-size: 48px; font-weight: 800; margin: 2px 0; }
+  .rank { font-size: 24px; font-weight: 800; margin: 8px 0 2px; }
+  .stats { font-size: 14px; opacity: .85; }
+  .fact {
+    font-size: 14px; margin: 14px 0 18px; padding: 10px 12px; border-radius: 12px; text-align: left;
+    background: rgba(42, 157, 143, .14); border: 1px solid rgba(42, 157, 143, .3);
+  }
+  .controls { position: absolute; top: 66px; right: 10px; display: flex; gap: 6px; }
+  .ctrl {
+    font-size: 13px; padding: 7px 13px; box-shadow: none;
+    background: rgba(8, 22, 26, .78); border: 1px solid rgba(255, 255, 255, .2);
+  }
+  .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .secondary { background: rgba(255, 255, 255, .1); box-shadow: none; border: 1px solid rgba(255, 255, 255, .22); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+  <div id="controls" class="controls hidden">
+    <button class="ctrl" id="pauseBtn"></button>
+    <button class="ctrl" id="stopBtn"></button>
+  </div>
+  <div id="pause" class="overlay hidden">
+    <div class="panel">
+      <h1>⏸ <span id="t-paused"></span></h1>
+      <div class="sub" id="t-pausedSub"></div>
+      <div class="row">
+        <button id="resumeBtn"></button>
+        <button id="stopBtn2" class="secondary"></button>
+      </div>
+    </div>
+  </div>
+  <div id="start" class="overlay">
+    <div class="panel">
+      <h1>🚒 <span id="t-title"></span></h1>
+      <div class="sub" id="t-sub"></div>
+      <ul class="rules" id="t-rules"></ul>
+      <button id="startBtn"></button>
+    </div>
+  </div>
+  <div id="end" class="overlay hidden">
+    <div class="panel">
+      <div class="label" id="t-over"></div>
+      <div class="big" id="final"></div>
+      <div class="stats" id="stats"></div>
+      <div class="rank" id="rank"></div>
+      <div class="fact" id="fact"></div>
+      <button id="againBtn"></button>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  const T = __TEXT__;
+  const EMOJI_FONT = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+
+  // ---------- Geography (simplified Sarawak, lon/lat) ----------
+  const BOUNDS = { w: 109.3, e: 115.8, s: 0.6, n: 5.25 };
+  const LAND = [
+    [109.65, 1.95], [110.3, 1.75], [110.9, 1.62], [111.3, 2.1], [111.5, 2.6], [112.1, 2.9],
+    [112.9, 3.12], [113.4, 3.6], [113.9, 4.3], [114.4, 4.6], [115.0, 4.95], [115.45, 4.65],
+    [115.4, 4.0], [115.0, 3.2], [114.5, 2.4], [113.6, 1.4], [112.5, 1.1], [111.4, 1.05],
+    [110.6, 0.9], [109.9, 1.2], [109.6, 1.5],
+  ];
+  const TOWNS = [
+    { name: "Kuching", lon: 110.36, lat: 1.55 }, { name: "Sibu", lon: 111.83, lat: 2.29 },
+    { name: "Mukah", lon: 112.09, lat: 2.9 }, { name: "Bintulu", lon: 113.03, lat: 3.17 },
+    { name: "Miri", lon: 113.99, lat: 4.4 },
+  ];
+  // Peat swamps: [lon, lat, radiusLon, radiusLat]
+  const PEAT = [[112.3, 2.62, 0.42, 0.2], [111.42, 2.25, 0.25, 0.22], [113.55, 3.72, 0.3, 0.16]];
+  const FLARE_SITES = [[112.75, 3.0], [114.3, 4.33], [111.15, 1.95]];
+  const DIRS = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]];
+
+  const inside = (lon, lat, poly) => {
+    let hit = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) hit = !hit;
+    }
+    return hit;
+  };
+  const inPeat = (lon, lat) => PEAT.some(([x, y, rx, ry]) => ((lon - x) / rx) ** 2 + ((lat - y) / ry) ** 2 <= 1);
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  // ---------- Canvas and layout ----------
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const wrap = document.getElementById("wrap");
+  let W = 0, H = 0, scale = 1, ox = 0, oy = 0;
+  const HUD = 58;
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = wrap.clientWidth; H = wrap.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const pad = 14, lonSpan = BOUNDS.e - BOUNDS.w, latSpan = BOUNDS.n - BOUNDS.s;
+    scale = Math.min((W - 2 * pad) / lonSpan, (H - HUD - pad) / latSpan);
+    ox = (W - lonSpan * scale) / 2;
+    // Narrow screens: map at the top, quick icon key in the space below.
+    oy = W < 560 ? HUD + 8 : HUD + (H - HUD - pad - latSpan * scale) / 2;
+  }
+  const legendTop = () => oy + (BOUNDS.n - BOUNDS.s) * scale + 18;
+  const toPx = (lon, lat) => [ox + (lon - BOUNDS.w) * scale, oy + (BOUNDS.n - lat) * scale];
+  const toGeo = (x, y) => [BOUNDS.w + (x - ox) / scale, BOUNDS.n - (y - oy) / scale];
+  window.addEventListener("resize", resize);
+  // Streamlit loads the game while its tab may still be hidden (size 0), so
+  // re-measure whenever the game area becomes visible or changes size.
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(wrap);
+  const ready = () => W > 80 && H > 120 && scale > 0;
+
+  // ---------- Game state ----------
+  const GAME_SECONDS = 60, LIVES = 5;
+  let state = "start", fires = [], puffs = [], floats = [], splashes = [];
+  let score = 0, lives = LIVES, timeLeft = GAME_SECONDS, level = 1, combo = 0, lastSave = -9;
+  let saves = 0, falseTaps = 0, now = 0, spawnTimer = 0, wind = { dx: 1, dy: 1, speed: 0.12 };
+  let banner = { text: "", t: 0 };
+  const flashes = {};
+  let lastHit = {};
+
+  function newWind() {
+    const [dx, dy] = DIRS[Math.floor(Math.random() * DIRS.length)];
+    const length = Math.hypot(dx, dy);
+    wind = { dx: dx / length, dy: dy / length, speed: 0.1 + level * 0.03 };
+  }
+  function windName() {
+    const i = DIRS.findIndex(([x, y]) => Math.sign(x) === Math.sign(Math.round(wind.dx * 2)) &&
+      Math.sign(y) === Math.sign(Math.round(wind.dy * 2)));
+    return T.compass[i < 0 ? 0 : i];
+  }
+
+  function reset() {
+    fires = []; puffs = []; floats = []; splashes = [];
+    score = 0; lives = LIVES; timeLeft = GAME_SECONDS; level = 1; combo = 0; lastSave = -9;
+    saves = 0; falseTaps = 0; spawnTimer = 0.4; lastHit = {}; newWind();
+    banner = { text: T.go, t: 1.6 };
+  }
+
+  function spawn() {
+    const flares = fires.filter((f) => f.fake).length;
+    if (Math.random() < 0.16 && flares < 2) {
+      const [lon, lat] = FLARE_SITES[Math.floor(Math.random() * FLARE_SITES.length)];
+      fires.push({ lon: lon + rand(-0.06, 0.06), lat: lat + rand(-0.04, 0.04), fake: true, life: 7, age: 0, size: 0.6 });
+      return;
+    }
+    const wantPeat = Math.random() < 0.38;
+    for (let tries = 0; tries < 200; tries++) {
+      let lon, lat;
+      if (wantPeat) {
+        const [x, y, rx, ry] = PEAT[Math.floor(Math.random() * PEAT.length)];
+        const a = rand(0, Math.PI * 2), r = Math.sqrt(Math.random()) * 0.9;
+        lon = x + Math.cos(a) * rx * r; lat = y + Math.sin(a) * ry * r;
+      } else {
+        lon = rand(BOUNDS.w, BOUNDS.e); lat = rand(BOUNDS.s, BOUNDS.n);
+      }
+      if (!inside(lon, lat, LAND)) continue;
+      if (TOWNS.some((t) => Math.hypot(t.lon - lon, t.lat - lat) < 0.3)) continue;
+      if (fires.some((f) => Math.hypot(f.lon - lon, f.lat - lat) < 0.25)) continue;
+      const peat = inPeat(lon, lat);
+      fires.push({ lon, lat, fake: false, peat, size: 0.15, age: 0, puffTimer: rand(0.5, 1.2) });
+      return;
+    }
+  }
+
+  function addFloat(text, lon, lat, color, big) {
+    floats.push({ text, lon, lat, color, big: !!big, t: 0 });
+  }
+
+  // ---------- Input ----------
+  canvas.addEventListener("pointerdown", (event) => {
+    if (state !== "play") return;
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    let best = null, bestD = Infinity;
+    for (const f of fires) {
+      const [fx, fy] = toPx(f.lon, f.lat);
+      const d = Math.hypot(fx - x, fy - y);
+      const reach = 24 + (f.fake ? 6 : f.size * 18);
+      if (d < reach && d < bestD) { best = f; bestD = d; }
+    }
+    const [lon, lat] = toGeo(x, y);
+    splashes.push({ lon, lat, t: 0 });
+    if (!best) return;
+    fires = fires.filter((f) => f !== best);
+    if (best.fake) {
+      score = Math.max(0, score - 50); combo = 0; falseTaps++;
+      addFloat(T.falseAlarm, best.lon, best.lat, "#ffb4a2", true);
+      return;
+    }
+    combo = now - lastSave < 1.6 ? combo + 1 : 1;
+    lastSave = now; saves++;
+    const multiplier = Math.min(combo, 3);
+    const base = 100 + (best.peat ? 60 : 0) + Math.round(Math.max(0, 1.3 - best.size) * 60);
+    const points = base * multiplier;
+    score += points;
+    addFloat(`+${points}`, best.lon, best.lat, best.peat ? "#ffd166" : "#b7f0e6", best.peat);
+    if (multiplier > 1) addFloat(`${T.combo} x${multiplier}!`, best.lon, best.lat + 0.18, "#f4a261", true);
+  });
+
+  // ---------- Update ----------
+  function update(dt) {
+    now += dt;
+    if (banner.t > 0) banner.t -= dt;
+    for (const s of splashes) s.t += dt;
+    splashes = splashes.filter((s) => s.t < 0.6);
+    for (const f of floats) f.t += dt;
+    floats = floats.filter((f) => f.t < 1.2);
+    for (const key of Object.keys(flashes)) flashes[key] = Math.max(0, flashes[key] - dt);
+    if (state !== "play") return;
+
+    timeLeft -= dt;
+    const newLevel = Math.min(4, 1 + Math.floor((GAME_SECONDS - timeLeft) / 15));
+    if (newLevel !== level) { level = newLevel; newWind(); banner = { text: `${T.windChange} ${windName()}`, t: 2 }; }
+
+    spawnTimer -= dt;
+    if (spawnTimer <= 0 && fires.length < 10) {
+      spawn();
+      spawnTimer = Math.max(0.75, 2.0 - (level - 1) * 0.38) * rand(0.75, 1.25);
+    }
+
+    for (const f of fires) {
+      f.age += dt;
+      if (f.fake) continue;
+      f.size = Math.min(1.6, f.size + dt * (f.peat ? 0.16 : 0.09) * (1 + (level - 1) * 0.15));
+      if (f.size < 0.35) continue;
+      f.puffTimer -= dt;
+      if (f.puffTimer <= 0) {
+        puffs.push({ lon: f.lon, lat: f.lat, age: 0, peat: f.peat });
+        f.puffTimer = (f.peat ? 0.9 : 1.7) / (0.6 + f.size * 0.5);
+      }
+    }
+    fires = fires.filter((f) => !f.fake || f.age < f.life);
+
+    for (const p of puffs) {
+      p.age += dt;
+      p.lon += wind.dx * wind.speed * dt + rand(-0.01, 0.01);
+      p.lat += wind.dy * wind.speed * dt + rand(-0.01, 0.01);
+      for (const town of TOWNS) {
+        if (!p.hit && Math.hypot(town.lon - p.lon, town.lat - p.lat) < 0.17) {
+          p.hit = true;
+          // Each town loses at most one heart every 2.5 s, so a burst of
+          // puffs does not end the game instantly.
+          if (now - (lastHit[town.name] || -9) >= 2.5) {
+            lastHit[town.name] = now; lives--; flashes[town.name] = 1;
+            addFloat(`💨 ${town.name}`, town.lon, town.lat + 0.12, "#ff8fa3", true);
+          }
+        }
+      }
+    }
+    puffs = puffs.filter((p) => !p.hit && p.age < 16 &&
+      p.lon > BOUNDS.w - 1 && p.lon < BOUNDS.e + 1 && p.lat > BOUNDS.s - 1 && p.lat < BOUNDS.n + 1);
+
+    if (lives <= 0 || timeLeft <= 0) finish(lives <= 0);
+  }
+
+  // ---------- Drawing ----------
+  function drawMap() {
+    const sea = ctx.createLinearGradient(0, 0, 0, H);
+    sea.addColorStop(0, "#123b4a"); sea.addColorStop(1, "#0a2430");
+    ctx.fillStyle = sea; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(255,255,255,.035)"; ctx.lineWidth = 1;
+    for (let y = HUD + 10; y < H; y += 26) {
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 20) ctx.lineTo(x, y + Math.sin(x / 40 + now * 0.8 + y) * 2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    LAND.forEach(([lon, lat], i) => { const [x, y] = toPx(lon, lat); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.closePath();
+    const land = ctx.createLinearGradient(0, oy, 0, oy + (BOUNDS.n - BOUNDS.s) * scale);
+    land.addColorStop(0, "#3f8f5f"); land.addColorStop(1, "#24603f");
+    ctx.fillStyle = land; ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(220,255,230,.35)"; ctx.stroke();
+
+    for (const [lon, lat, rx, ry] of PEAT) {
+      const [x, y] = toPx(lon, lat);
+      ctx.beginPath(); ctx.ellipse(x, y, rx * scale, ry * scale, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(120,80,50,.55)"; ctx.fill();
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(210,170,120,.6)"; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    const [lx, ly] = toPx(PEAT[0][0], PEAT[0][1] - PEAT[0][3] - 0.08);
+    ctx.font = "600 11px sans-serif"; ctx.fillStyle = "rgba(240,215,180,.9)"; ctx.textAlign = "center";
+    ctx.fillText(T.peat, lx, ly);
+
+    for (const town of TOWNS) {
+      const [x, y] = toPx(town.lon, town.lat);
+      const flash = flashes[town.name] || 0;
+      ctx.beginPath(); ctx.arc(x, y, 7 + flash * 6, 0, Math.PI * 2);
+      ctx.fillStyle = flash ? `rgba(255,90,110,${0.5 + flash * 0.5})` : "#f1faee"; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = "#1d3557"; ctx.stroke();
+      ctx.font = "700 12px sans-serif"; ctx.textAlign = "left";
+      ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.strokeText(town.name, x + 10, y + 4);
+      ctx.fillStyle = "#fff"; ctx.fillText(town.name, x + 10, y + 4);
+    }
+  }
+
+  function drawFires() {
+    for (const f of fires) {
+      const [x, y] = toPx(f.lon, f.lat);
+      if (f.fake) {
+        const glow = 16 + Math.sin(now * 12 + f.lon) * 3;
+        const g = ctx.createRadialGradient(x, y - 10, 2, x, y - 10, glow);
+        g.addColorStop(0, "rgba(255,200,80,.8)"); g.addColorStop(1, "rgba(255,200,80,0)");
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y - 10, glow, 0, Math.PI * 2); ctx.fill();
+        ctx.font = `24px ${EMOJI_FONT}`; ctx.textAlign = "center"; ctx.fillText("🏭", x, y + 8);
+        continue;
+      }
+      const pulse = 1 + Math.sin(now * 8 + f.lat * 9) * 0.08;
+      const r = (14 + f.size * 26) * pulse;
+      const g = ctx.createRadialGradient(x, y, 2, x, y, r);
+      g.addColorStop(0, f.peat ? "rgba(255,120,30,.95)" : "rgba(255,90,40,.9)");
+      g.addColorStop(0.5, f.peat ? "rgba(200,70,20,.45)" : "rgba(230,60,40,.4)");
+      g.addColorStop(1, "rgba(200,40,20,0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      if (f.peat) {
+        ctx.beginPath(); ctx.arc(x, y, 12 + f.size * 12, 0, Math.PI * 2);
+        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(150,95,50,.95)"; ctx.stroke();
+      }
+      ctx.font = `${Math.round(16 + f.size * 16)}px ${EMOJI_FONT}`; ctx.textAlign = "center";
+      ctx.fillText("🔥", x, y + 6 + f.size * 4);
+    }
+  }
+
+  function drawEffects() {
+    for (const p of puffs) {
+      const [x, y] = toPx(p.lon, p.lat);
+      const life = Math.min(1, p.age / 16);
+      ctx.beginPath(); ctx.arc(x, y, 7 + p.age * 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.peat ? "150,140,125" : "185,185,185"},${0.55 * (1 - life)})`; ctx.fill();
+    }
+    for (const s of splashes) {
+      const [x, y] = toPx(s.lon, s.lat);
+      ctx.beginPath(); ctx.arc(x, y, 6 + s.t * 60, 0, Math.PI * 2);
+      ctx.lineWidth = 3; ctx.strokeStyle = `rgba(120,200,255,${1 - s.t / 0.6})`; ctx.stroke();
+      if (s.t < 0.3) {
+        ctx.font = `${18}px ${EMOJI_FONT}`; ctx.textAlign = "center"; ctx.fillText("💧", x, y - 6 - s.t * 30);
+      }
+    }
+    const haze = (LIVES - lives) / LIVES;
+    if (haze > 0) { ctx.fillStyle = `rgba(170,160,140,${haze * 0.28})`; ctx.fillRect(0, HUD, W, H - HUD); }
+    for (const f of floats) {
+      const [x, y] = toPx(f.lon, f.lat);
+      ctx.globalAlpha = Math.max(0, 1 - f.t / 1.2);
+      ctx.font = `800 ${f.big ? 18 : 15}px sans-serif`; ctx.textAlign = "center";
+      ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText(f.text, x, y - 18 - f.t * 30);
+      ctx.fillStyle = f.color; ctx.fillText(f.text, x, y - 18 - f.t * 30);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawHud() {
+    ctx.fillStyle = "rgba(8,22,26,.82)"; ctx.fillRect(0, 0, W, HUD);
+    ctx.fillStyle = "rgba(42,157,143,.6)"; ctx.fillRect(0, HUD - 2, W * Math.max(0, timeLeft) / GAME_SECONDS, 2);
+    const compact = W < 520;
+    ctx.textAlign = "left"; ctx.fillStyle = "#fff";
+    ctx.font = `800 ${compact ? 17 : 20}px sans-serif`;
+    ctx.fillText(`⭐ ${score}`, 12, 25);
+    ctx.font = `600 ${compact ? 12 : 13}px sans-serif`; ctx.fillStyle = "rgba(230,240,239,.8)";
+    ctx.fillText(`⏱ ${Math.max(0, Math.ceil(timeLeft))}s · ${T.level} ${level}`, 12, 45);
+    ctx.textAlign = "center"; ctx.font = `${compact ? 15 : 18}px ${EMOJI_FONT}`;
+    ctx.fillText("❤️".repeat(Math.max(0, lives)) + "🤍".repeat(LIVES - Math.max(0, lives)), W / 2, 25);
+    ctx.font = `600 ${compact ? 11 : 12}px sans-serif`; ctx.fillStyle = "rgba(230,240,239,.75)";
+    ctx.fillText(T.air, W / 2, 45);
+    const cx = W - (compact ? 40 : 52), cy = 29;
+    ctx.beginPath(); ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,.08)"; ctx.fill();
+    const ax = wind.dx * 14, ay = -wind.dy * 14;
+    ctx.strokeStyle = "#7ee0d3"; ctx.lineWidth = 3; ctx.beginPath();
+    ctx.moveTo(cx - ax, cy - ay); ctx.lineTo(cx + ax, cy + ay); ctx.stroke();
+    const angle = Math.atan2(ay, ax);
+    ctx.beginPath(); ctx.moveTo(cx + ax, cy + ay);
+    ctx.lineTo(cx + ax - 7 * Math.cos(angle - 0.5), cy + ay - 7 * Math.sin(angle - 0.5));
+    ctx.lineTo(cx + ax - 7 * Math.cos(angle + 0.5), cy + ay - 7 * Math.sin(angle + 0.5));
+    ctx.closePath(); ctx.fillStyle = "#7ee0d3"; ctx.fill();
+    ctx.font = "600 11px sans-serif"; ctx.fillStyle = "rgba(230,240,239,.8)";
+    ctx.textAlign = "right"; ctx.fillText(`💨 ${T.wind}`, cx - 26, cy + 4);
+    if (banner.t > 0) {
+      ctx.globalAlpha = Math.min(1, banner.t);
+      ctx.font = "800 22px sans-serif"; ctx.textAlign = "center";
+      ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.strokeText(banner.text, W / 2, HUD + 40);
+      ctx.fillStyle = "#ffd166"; ctx.fillText(banner.text, W / 2, HUD + 40);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawLegend() {
+    if (W >= 560 || H - legendTop() < 120) return;
+    let y = legendTop();
+    ctx.textAlign = "left";
+    for (const line of T.key) {
+      ctx.font = `20px ${EMOJI_FONT}`; ctx.fillStyle = "#fff";
+      ctx.fillText(line[0], 18, y + 6);
+      ctx.font = "600 14px sans-serif"; ctx.fillStyle = "rgba(230,240,239,.85)";
+      ctx.fillText(line[1], 50, y + 4);
+      y += 34;
+    }
+  }
+
+  function draw() { drawMap(); drawFires(); drawEffects(); drawLegend(); drawHud(); }
+
+  // ---------- Screens ----------
+  const $ = (id) => document.getElementById(id);
+  $("t-title").textContent = T.title;
+  $("t-sub").textContent = T.sub;
+  $("t-rules").innerHTML = T.rules.map((r) => `<li>${r}</li>`).join("");
+  $("startBtn").textContent = T.start;
+  $("againBtn").textContent = T.again;
+  $("pauseBtn").textContent = `⏸ ${T.pause}`;
+  $("stopBtn").textContent = `⏹ ${T.stop}`;
+  $("stopBtn2").textContent = `⏹ ${T.stopGame}`;
+  $("resumeBtn").textContent = `▶ ${T.resume}`;
+  $("t-paused").textContent = T.paused;
+  $("t-pausedSub").textContent = T.pausedSub;
+  const show = (id, visible) => $(id).classList.toggle("hidden", !visible);
+
+  function begin() {
+    resize(); reset(); state = "play";
+    show("start", false); show("end", false); show("pause", false); show("controls", true);
+  }
+  function pause() {
+    if (state !== "play") return;
+    state = "paused"; show("pause", true); show("controls", false);
+  }
+  function resume() {
+    if (state !== "paused") return;
+    state = "play"; show("pause", false); show("controls", true);
+  }
+  function stop() {
+    if (state === "play" || state === "paused") finish(false, true);
+  }
+  $("pauseBtn").addEventListener("click", pause);
+  $("resumeBtn").addEventListener("click", resume);
+  $("stopBtn").addEventListener("click", stop);
+  $("stopBtn2").addEventListener("click", stop);
+  // Pause automatically when the player switches browser tab or app.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "p" || event.key === "P") state === "paused" ? resume() : pause();
+  });
+
+  function finish(lostAllAir, stopped) {
+    state = "end";
+    show("controls", false); show("pause", false);
+    $("t-over").textContent = stopped ? T.stopped : T.over;
+    let best = 0;
+    try { best = Math.max(Number(localStorage.getItem("hazePatrolBest") || 0), score); localStorage.setItem("hazePatrolBest", String(best)); }
+    catch (error) { best = score; }
+    const rank = T.ranks.filter((r) => score >= r[0]).pop();
+    $("final").textContent = score.toLocaleString();
+    $("stats").textContent = `${lostAllAir ? T.lostAir + " · " : ""}${T.saved} ${saves} · ${T.falseTaps} ${falseTaps} · ${T.best} ${best.toLocaleString()}`;
+    $("rank").textContent = rank[1];
+    $("fact").innerHTML = `💡 ${T.facts[Math.floor(Math.random() * T.facts.length)]}`;
+    $("end").classList.remove("hidden");
+  }
+  $("startBtn").addEventListener("click", begin);
+  $("againBtn").addEventListener("click", begin);
+
+  // Read-only status for automated checks.
+  window.hazePatrol = {
+    get state() { return state; }, get score() { return score; }, get lives() { return lives; },
+    get timeLeft() { return timeLeft; },
+    get fires() { return fires.map((f) => ({ ...f, xy: toPx(f.lon, f.lat) })); },
+  };
+
+  // ---------- Main loop ----------
+  resize(); newWind();
+  let last = performance.now();
+  function frame(time) {
+    requestAnimationFrame(frame);  // schedule first so one bad frame can't stop the game
+    const dt = Math.min(0.05, (time - last) / 1000); last = time;
+    if (!ready()) return;          // hidden tab: wait until the game is visible
+    update(dt);
+    draw();
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

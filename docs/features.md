@@ -13,9 +13,14 @@ UTC+08:00).
   default.
 - **☰ Menu** (top left) holds all settings. It starts closed so the page
   opens on the content.
-- **Five section tabs** shown as frosted-glass pills; the selected tab glows
-  in the banner's teal-to-orange gradient:
-  📍 Today · 🔥 Fire areas · 🛰️ Satellite signals · 📈 Past years · 📘 Guide.
+- **Six sections** in a frosted-glass switcher; the selected one glows in
+  the banner's teal-to-orange gradient:
+  📍 Today · 🔥 Fire areas · 🛰️ Satellite signals · 📈 Past years ·
+  🎮 Haze Patrol · 📘 Guide. Only the open section is drawn, so pages load
+  quickly, and the switcher stays available even when a data source still
+  needs setting up.
+- The sign-in banner and form share one centred column.
+- The dashboard is in English.
 
 ## ☰ Menu (settings)
 
@@ -23,8 +28,6 @@ Always visible:
 
 - **Data source:** Demo data, Live NASA FIRMS (choose Sarawak or Borneo and
   1-10 days), or Upload CSV.
-- **Language / Bahasa:** English or Bahasa Malaysia for the daily summary
-  card and the fire-areas table.
 - **Dates:** observation date range.
 - **Areas:** pick towns/regions; leave empty for all areas.
 
@@ -35,15 +38,19 @@ Folded away:
 - **Advanced settings:** match time window (5-120 min), match distance
   (1-25 km), fire grouping distance (0.5-5 km), and smoke direction on/off.
 
-**Sign out** is always the last item at the bottom of the menu, in every
-data mode.
+The data settings (data source, dates, areas, filters and advanced
+settings) only affect 📍 Today, 🔥 Fire areas and 🛰️ Satellite signals. In
+📈 Past years, 🎮 Haze Patrol and 📘 Guide they are greyed out with a 🔒 note,
+and the choices are kept for when you return.
+
+**Sign out** is always the last item at the bottom of the menu and works in
+every section and data mode.
 
 ## 📍 Today
 
 - **Headline numbers:** fire areas, high-attention areas, areas on peatland,
   and towns in the smoke path.
-- **Situation summary card** for the latest day (in English or Bahasa
-  Malaysia):
+- **Situation summary card** for the latest day:
   - Date with MYT (UTC+08:00).
   - Tiles: active today, new today, seen by both satellites.
   - **Top fire area cards** with a coloured attention badge (HIGH / MEDIUM /
@@ -91,6 +98,28 @@ data mode.
   bar chart and average line.
 - Needs a `FIRMS_MAP_KEY`; uses archive data (`MODIS_SP`) for past years and
   near-real-time data (`MODIS_NRT`) for this year.
+
+## 🎮 Haze Patrol
+
+A 60-second arcade game on a stylised map of Sarawak, built on the same ideas
+as the dashboard. Works with mouse or touch, on desktop and phones.
+
+- **Tap fires** to drop water; small fires give bonus points and quick
+  saves build a combo (up to x3).
+- **Peat fires** 🟤 grow faster and send out more smoke.
+- **Smoke drifts with the wind** 💨 (arrow in the top bar). Each puff that
+  reaches a town costs one ❤️ of clean air (at most one per town every
+  2.5 seconds); the haze visibly thickens as clean air runs out.
+- **Gas flares** 🏭 are false alarms: tapping one costs 50 points.
+- The wind changes direction and the game speeds up every 15 seconds
+  (4 levels).
+- **⏸ Pause** and **⏹ Stop** at any time; the game also pauses itself when
+  you switch browser tab, and the P key toggles pause.
+- End screen with score, fires put out, false alarms, best score (saved in
+  this browser only), a rank (🌱 Junior Ranger, 🚒 Fire Fighter,
+  🛰️ Haze Hunter, 🔥 Haze Hero) and a real fact about fires and haze.
+- On narrow screens the map sits at the top with a quick icon key below.
+- Practice game with made-up fires; it does not use the dashboard data.
 
 ## 📘 Guide
 
@@ -147,8 +176,9 @@ data mode.
 - Charts follow the active theme instead of forcing a white background.
 - Consistent colours: MODIS orange, VIIRS teal, matched pairs purple;
   attention High red, Medium orange, Low grey.
-- English and Bahasa Malaysia for the summary card, labels, explanations and
-  the fire-areas table.
+- English throughout. Bahasa Malaysia text for the summary and the game is
+  kept in the code (`summary.py`, `scoring.py`, `game.py`) for a future full
+  translation.
 
 ## Setup options
 
@@ -162,11 +192,11 @@ data mode.
 
 ## Testing
 
-- 55 unit tests (pytest) covering data loading and FIRMS formats, matching
+- 61 unit tests (pytest) covering data loading and FIRMS formats, matching
   (including a check that the fast matcher gives the same pairs as a
   compare-everything method, and a 6,000-record speed test), fire areas,
   peatland, scoring, smoke direction, the daily summary in both languages,
-  ground reports, false-alarm filtering, the FIRMS live and history client
+  ground reports, false-alarm filtering, the Haze Patrol page, the FIRMS live and history client
   (with simulated responses), filters, map features and login.
 - GitHub Actions runs lint (flake8) and tests on every push and pull request.
 

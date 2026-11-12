@@ -95,7 +95,8 @@ flake8 app.py src tests
   peatland and confidence, with a plain explanation for each fire
 - **Smoke direction outlook:** lists towns downwind of active fires in the
   next 24 hours using the Open-Meteo wind forecast
-- **Daily summary** in English or Bahasa Malaysia
+- **Daily situation summary** card for the latest day
+- **🎮 Haze Patrol:** a 60-second arcade game about fires, peat, wind and haze (with pause and stop)
 - **Ground reports:** users can confirm a fire or mark a false alarm; false
   alarm locations are flagged automatically in future data
 - **False-alarm filter:** hides FIRMS volcano/industrial/offshore detections,
@@ -169,7 +170,8 @@ flake8 app.py src tests
 │   ├── peat.py                         # Peatland point-in-polygon check
 │   ├── scoring.py                      # Attention score
 │   ├── haze.py                         # Wind forecast and smoke outlook
-│   ├── summary.py                      # English / Bahasa Malaysia summary
+│   ├── summary.py                      # Daily situation summary
+│   ├── game.py, haze_patrol.html       # Haze Patrol game
 │   ├── feedback.py                     # Ground reports
 │   ├── false_alarms.py                 # Known heat sources, FIRMS type
 │   ├── firms.py                        # NASA FIRMS live and history API

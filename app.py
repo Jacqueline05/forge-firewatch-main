@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from firewatch.harmonize import MatchConfig, harmonize  # noqa: E402
@@ -40,6 +41,7 @@ from firewatch.peat import load_peat_layer, points_on_peat  # noqa: E402
 from firewatch.places import LOCAL_UTC_OFFSET, compass  # noqa: E402
 from firewatch.scoring import LEVEL_MS, score_events  # noqa: E402
 from firewatch.summary import format_date, summary_facts  # noqa: E402
+from firewatch.game import haze_patrol_html  # noqa: E402
 
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -330,8 +332,8 @@ st.markdown(
         margin-top: auto;
         padding-top: .75rem;
     }
-    /* Section tabs as frosted-glass pills */
-    .stTabs [data-baseweb="tab-list"] {
+    /* Section switcher as frosted-glass pills */
+    .st-key-section [role="radiogroup"] {
         gap: .35rem;
         padding: .35rem;
         border-radius: 999px;
@@ -342,32 +344,36 @@ st.markdown(
         box-shadow: 0 6px 24px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .08);
         width: fit-content;
         max-width: 100%;
+        flex-wrap: nowrap;
         overflow-x: auto;
         margin-bottom: .6rem;
     }
-    .stTabs [data-baseweb="tab"] {
-        height: auto;
+    .st-key-section label[data-baseweb="radio"] {
+        margin: 0;
         padding: .5rem 1.05rem;
         border-radius: 999px;
-        background: transparent;
         border: 1px solid transparent;
-        transition: background .2s ease, box-shadow .2s ease, transform .15s ease;
+        cursor: pointer;
         white-space: nowrap;
+        transition: background .2s ease, box-shadow .2s ease;
     }
-    .stTabs [data-baseweb="tab"] p { font-size: .92rem; font-weight: 600; }
-    .stTabs [data-baseweb="tab"]:hover {
+    .st-key-section label[data-baseweb="radio"] > div:first-child { display: none; }
+    .st-key-section label[data-baseweb="radio"] p { font-size: .92rem; font-weight: 600; }
+    .st-key-section label[data-baseweb="radio"]:hover {
         background: rgba(255, 255, 255, .08);
         border-color: rgba(255, 255, 255, .12);
     }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+    .st-key-section label[data-baseweb="radio"]:has(input:checked) {
         background: linear-gradient(135deg, rgba(42, 157, 143, .85), rgba(11, 110, 105, .75) 55%,
                                     rgba(244, 162, 97, .65));
         border-color: rgba(255, 255, 255, .22);
         box-shadow: 0 4px 16px rgba(42, 157, 143, .35), inset 0 1px 0 rgba(255, 255, 255, .25);
     }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] p { color: #fff; }
-    .stTabs [data-baseweb="tab-highlight"],
-    .stTabs [data-baseweb="tab-border"] { display: none; }
+    .st-key-section label[data-baseweb="radio"]:has(input:checked) p { color: #fff; }
+    @media (max-width: 640px) {
+        .st-key-section label[data-baseweb="radio"] { padding: .4rem .7rem; }
+        .st-key-section label[data-baseweb="radio"] p { font-size: .82rem; }
+    }
 
     /* Today headline numbers: 4 across on desktop, 2 x 2 on phones */
     .fw-kpis {
@@ -387,9 +393,9 @@ st.markdown(
         .fw-kpis { grid-template-columns: repeat(2, 1fr); gap: .5rem; }
         .fw-kpi { padding: .6rem .7rem; }
         .fw-kpi-num { font-size: 1.3rem; }
-        .stTabs [data-baseweb="tab"] { padding: .4rem .7rem; }
-        .stTabs [data-baseweb="tab"] p { font-size: .82rem; }
     }
+
+    .hero-login { margin-top: 2rem; }
 
     /* Daily summary card */
     .fw-summary {
@@ -491,9 +497,11 @@ def login_screen() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
-    st.markdown(
+    # Banner and form share one centred column so they line up exactly.
+    _, form_col, _ = st.columns((1, 1.6, 1))
+    form_col.markdown(
         """
-        <div class="hero">
+        <div class="hero hero-login">
             <div class="eyebrow">FORGEX6 • NASA Space Apps Challenge 2026</div>
             <h1>🔥 Borneo FireWatch</h1>
             <p>A clearer view of MODIS and VIIRS thermal-anomaly observations.</p>
@@ -501,7 +509,6 @@ def login_screen() -> bool:
         """,
         unsafe_allow_html=True,
     )
-    _, form_col, _ = st.columns((1, 1.3, 1))
     with form_col, st.form("login"):
         st.markdown("#### Sign in")
         username = st.text_input("Username", placeholder="Your team username")
@@ -562,10 +569,44 @@ with st.expander("Start here: what am I looking at?", expanded=False):
         """
     )
 
+SECTIONS = {
+    "today": "📍 Today",
+    "fire_areas": "🔥 Fire areas",
+    "signals": "🛰️ Satellite signals",
+    "past_years": "📈 Past years",
+    "game": "🎮 Haze Patrol",
+    "guide": "📘 Guide",
+}
+# Menu data settings only affect these sections; elsewhere they are locked.
+DATA_SECTIONS = {"today", "fire_areas", "signals"}
+section = st.session_state.get("section", "today")
+if section not in SECTIONS:
+    section = "today"
+locked = section not in DATA_SECTIONS
+# The dashboard is English only. (Bahasa Malaysia text for the summary and
+# the game is kept in the modules in case a full translation is added later.)
+language_code = "en"
+
+st.radio(
+    "Section",
+    list(SECTIONS),
+    format_func=SECTIONS.get,
+    horizontal=True,
+    key="section",
+    label_visibility="collapsed",
+)
+
 with st.sidebar:
+    if locked:
+        st.caption(
+            "🔒 Data settings apply to Today, Fire areas and Satellite "
+            "signals. Open one of those sections to change them."
+        )
     data_source = st.radio(
         "Data source",
         DATA_SOURCES,
+        disabled=locked,
+        key="data_source",
         help=(
             "Demo data is fictional. Live data downloads the latest MODIS and "
             "VIIRS detections from NASA FIRMS."
@@ -573,18 +614,20 @@ with st.sidebar:
     )
     live_area, live_days, uploaded_file = "Sarawak", 3, None
     if data_source == "Live NASA FIRMS":
-        live_area = st.selectbox("Area", list(AREAS))
-        live_days = st.slider("Days of data", 1, MAX_DAY_RANGE, 3)
+        live_area = st.selectbox(
+            "Area", list(AREAS), disabled=locked, key="live_area"
+        )
+        live_days = st.slider(
+            "Days of data", 1, MAX_DAY_RANGE, 3, disabled=locked, key="live_days"
+        )
     elif data_source == "Upload CSV":
         uploaded_file = st.file_uploader(
             "Upload NASA FIRMS-compatible CSV",
             type=["csv"],
             help="Accepts the project schema or common FIRMS fields such as acq_date.",
+            disabled=locked,
+            key="upload",
         )
-    language = st.radio(
-        "Language / Bahasa", ["English", "Bahasa Malaysia"], horizontal=True
-    )
-    language_code = "ms" if language == "Bahasa Malaysia" else "en"
     # Date and area pickers depend on the data, so they are filled in later
     # but keep this position in the sidebar.
     date_area_box = st.container()
@@ -594,6 +637,8 @@ with st.sidebar:
             "Satellites",
             options=["MODIS", "VIIRS"],
             default=["MODIS", "VIIRS"],
+            disabled=locked,
+            key="sources",
         )
         confidence = st.slider(
             "Minimum confidence",
@@ -601,6 +646,8 @@ with st.sidebar:
             100,
             0,
             help="Higher values show only stronger satellite signals.",
+            disabled=locked,
+            key="min_confidence",
         )
         hide_false_alarms = st.checkbox(
             "Hide likely false alarms",
@@ -610,6 +657,8 @@ with st.sidebar:
                 "sources or offshore, plus known heat sources and places "
                 "reported as false alarms."
             ),
+            disabled=locked,
+            key="hide_false_alarms",
         )
 
     with st.expander("Advanced settings"):
@@ -619,6 +668,8 @@ with st.sidebar:
             120,
             30,
             help="MODIS and VIIRS signals this close in time can be paired.",
+            disabled=locked,
+            key="max_minutes",
         )
         max_distance_km = st.slider(
             "Match distance (km)",
@@ -630,6 +681,8 @@ with st.sidebar:
                 "Signals from different satellites within this distance may be "
                 "paired. Coverage circles on the signals map use this radius."
             ),
+            disabled=locked,
+            key="max_distance_km",
         )
         event_link_km = st.slider(
             "Group fire detections within (km)",
@@ -638,11 +691,15 @@ with st.sidebar:
             2.0,
             step=0.5,
             help="Nearby detections on consecutive days are treated as one fire.",
+            disabled=locked,
+            key="event_link_km",
         )
         show_haze = st.checkbox(
             "Show smoke direction",
             value=True,
             help="Uses the Open-Meteo wind forecast (demo mode uses an example wind).",
+            disabled=locked,
+            key="show_haze",
         )
 
 
@@ -678,7 +735,10 @@ def firms_key_help() -> None:
 
 map_key = get_secret("FIRMS_MAP_KEY")
 try:
-    if data_source == "Live NASA FIRMS":
+    if locked:
+        # Past years, game and guide don't use the filtered data.
+        data = load_data(None).iloc[0:0].copy()
+    elif data_source == "Live NASA FIRMS":
         if not map_key:
             st.info(
                 "**Live data isn't switched on yet.** Choose **Demo data** in "
@@ -732,6 +792,10 @@ if hide_false_alarms:
 
 selected_date_range = None
 selected_regions = []
+if locked:
+    with date_area_box:
+        st.date_input("Dates", value=None, disabled=True)
+        st.multiselect("Areas", ["All areas"], placeholder="All areas", disabled=True)
 if not data.empty:
     observation_dates = data["observed_at"].dt.date
     min_date = observation_dates.min()
@@ -826,9 +890,6 @@ if show_haze and not events.empty:
 matched = int((result["match_status"] == "matched").sum())
 matched_pairs = matched // 2
 match_rate = (matched / len(result) * 100) if len(result) else 0
-today_tab, events_tab, overview_tab, history_tab, guide_tab = st.tabs(
-    ["📍 Today", "🔥 Fire areas", "🛰️ Satellite signals", "📈 Past years", "📘 Guide"]
-)
 
 
 def summary_card_html(facts: dict, language: str, peat_available: bool) -> str:
@@ -1006,7 +1067,7 @@ def events_map(
     return figure
 
 
-with today_tab:
+if section == "today":
     notes = []
     if is_demo:
         notes.append("Demo mode: fictional fires, illustrative peat areas and an example wind.")
@@ -1067,7 +1128,7 @@ with today_tab:
                 "could drift in 24 hours. " + haze_note
             )
 
-with events_tab:
+if section == "fire_areas":
     if events.empty:
         st.info(
             "No fire areas match the current filters. Try widening the dates or "
@@ -1178,7 +1239,7 @@ with events_tab:
                     use_container_width=True,
                 )
 
-with overview_tab:
+if section == "signals":
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Signals shown", len(result), help="Total heat signals after filters.")
     col2.metric(
@@ -1338,110 +1399,111 @@ with overview_tab:
                 "does not represent burned area or fire intensity."
             )
 
-with overview_tab, st.expander("Charts and data table"):
-    left, right = st.columns((1.25, 1))
-    with left:
-        st.subheader("Observation trends")
-        daily = (
-            result.assign(date=result["observed_at"].dt.date)
-            .groupby(["date", "source"], as_index=False)
+if section == "signals":
+    with st.expander("Charts and data table"):
+        left, right = st.columns((1.25, 1))
+        with left:
+            st.subheader("Observation trends")
+            daily = (
+                result.assign(date=result["observed_at"].dt.date)
+                .groupby(["date", "source"], as_index=False)
+                .size()
+                .rename(columns={"size": "observations"})
+            )
+            chart = px.line(
+                daily,
+                x="date",
+                y="observations",
+                color="source",
+                markers=True,
+                color_discrete_map=MAP_SOURCE_COLORS,
+            )
+            chart.update_layout(legend_title_text="Satellite")
+            st.plotly_chart(chart, use_container_width=True)
+
+        with right:
+            st.subheader("Confidence by source")
+            confidence_chart = px.box(
+                result,
+                x="source",
+                y="confidence",
+                color="source",
+                points="all",
+                color_discrete_map=MAP_SOURCE_COLORS,
+            )
+            confidence_chart.update_layout(
+                showlegend=False, yaxis_title="Confidence score"
+            )
+            st.plotly_chart(confidence_chart, use_container_width=True)
+
+        st.subheader("Regional activity comparison")
+        regional = (
+            result.groupby(["region", "source"], as_index=False)
             .size()
             .rename(columns={"size": "observations"})
         )
-        chart = px.line(
-            daily,
-            x="date",
+        region_chart = px.bar(
+            regional,
+            x="region",
             y="observations",
             color="source",
-            markers=True,
-            color_discrete_map=MAP_SOURCE_COLORS,
+            barmode="group",
+            text_auto=True,
+            color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
         )
-        chart.update_layout(legend_title_text="Satellite")
-        st.plotly_chart(chart, use_container_width=True)
+        region_chart.update_layout(
+            xaxis_title="Study region",
+            yaxis_title="Observations",
+            legend_title_text="Satellite source",
+        )
+        st.plotly_chart(region_chart, use_container_width=True)
 
-    with right:
-        st.subheader("Confidence by source")
-        confidence_chart = px.box(
-            result,
-            x="source",
-            y="confidence",
-            color="source",
-            points="all",
-            color_discrete_map=MAP_SOURCE_COLORS,
+        st.subheader("Harmonization results")
+        status_counts = (
+            result["match_status"]
+            .value_counts()
+            .rename_axis("status")
+            .reset_index(name="count")
         )
-        confidence_chart.update_layout(
-            showlegend=False, yaxis_title="Confidence score"
-        )
-        st.plotly_chart(confidence_chart, use_container_width=True)
+        status_col, table_col = st.columns((0.8, 1.7))
+        with status_col:
+            status_chart = px.pie(
+                status_counts,
+                names="status",
+                values="count",
+                hole=0.45,
+                color_discrete_sequence=["#2a9d8f", "#f4a261", "#e76f51"],
+            )
+            status_chart.update_layout(
+                showlegend=True, margin=dict(t=10, b=10, l=10, r=10)
+            )
+            st.plotly_chart(status_chart, use_container_width=True)
 
-    st.subheader("Regional activity comparison")
-    regional = (
-        result.groupby(["region", "source"], as_index=False)
-        .size()
-        .rename(columns={"size": "observations"})
-    )
-    region_chart = px.bar(
-        regional,
-        x="region",
-        y="observations",
-        color="source",
-        barmode="group",
-        text_auto=True,
-        color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
-    )
-    region_chart.update_layout(
-        xaxis_title="Study region",
-        yaxis_title="Observations",
-        legend_title_text="Satellite source",
-    )
-    st.plotly_chart(region_chart, use_container_width=True)
+        with table_col:
+            st.dataframe(
+                result[
+                    [
+                        "id",
+                        "source",
+                        "observed_at",
+                        "region",
+                        "confidence",
+                        "match_status",
+                        "matched_id",
+                        "match_distance_km",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.download_button(
+                "Download filtered results",
+                data=result.to_csv(index=False).encode("utf-8"),
+                file_name="borneo-firewatch-harmonized-results.csv",
+                mime="text/csv",
+            )
 
-    st.subheader("Harmonization results")
-    status_counts = (
-        result["match_status"]
-        .value_counts()
-        .rename_axis("status")
-        .reset_index(name="count")
-    )
-    status_col, table_col = st.columns((0.8, 1.7))
-    with status_col:
-        status_chart = px.pie(
-            status_counts,
-            names="status",
-            values="count",
-            hole=0.45,
-            color_discrete_sequence=["#2a9d8f", "#f4a261", "#e76f51"],
-        )
-        status_chart.update_layout(
-            showlegend=True, margin=dict(t=10, b=10, l=10, r=10)
-        )
-        st.plotly_chart(status_chart, use_container_width=True)
-
-    with table_col:
-        st.dataframe(
-            result[
-                [
-                    "id",
-                    "source",
-                    "observed_at",
-                    "region",
-                    "confidence",
-                    "match_status",
-                    "matched_id",
-                    "match_distance_km",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.download_button(
-            "Download filtered results",
-            data=result.to_csv(index=False).encode("utf-8"),
-            file_name="borneo-firewatch-harmonized-results.csv",
-            mime="text/csv",
-        )
-
-with history_tab:
+if section == "past_years":
     st.subheader("This season compared with past years")
     st.caption(
         "Counts MODIS detections over the same 10-day window each year. MODIS "
@@ -1499,7 +1561,14 @@ with history_tab:
                 )
                 st.plotly_chart(history_chart, use_container_width=True)
 
-with guide_tab:
+if section == "game":
+    components.html(haze_patrol_html(language_code), height=600)
+    st.caption(
+        "Haze Patrol is a practice game with made-up fires. Your best score "
+        "is saved in this browser only."
+    )
+
+if section == "guide":
     st.subheader("How the attention score works")
     st.markdown(
         """
