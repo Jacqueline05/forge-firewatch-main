@@ -3,14 +3,108 @@ import sys
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from firewatch.harmonize import MatchConfig, harmonize  # noqa: E402
+from firewatch.map_features import (  # noqa: E402
+    build_map_features,
+    coverage_circle,
+)
 from firewatch.auth import authenticate  # noqa: E402
 
 
 DATA_PATH = Path(__file__).parent / "data" / "sample_hotspots.csv"
+MAP_SOURCE_COLORS = {
+    "MODIS": "#e76f51",
+    "VIIRS": "#2a9d8f",
+    "MODIS + VIIRS": "#7651a8",
+}
+MAP_CIRCLE_COLORS = {
+    "MODIS": "rgba(231, 111, 81, 0.14)",
+    "VIIRS": "rgba(42, 157, 143, 0.14)",
+    "MODIS + VIIRS": "rgba(118, 81, 168, 0.18)",
+}
+
+
+def _map_frame_data(
+    map_data: pd.DataFrame, date: str, radius_km: float
+) -> list[go.Scattermapbox]:
+    frame_data = map_data[map_data["observation_date"] == date]
+    traces = []
+
+    for source, color in MAP_SOURCE_COLORS.items():
+        group = frame_data[frame_data["source"] == source]
+        customdata = pd.DataFrame(
+            {
+                "id": group["id"].astype(str),
+                "source": group["source"].astype(str),
+                "region": group["region"].astype(str),
+                "observed_at": group["observed_at"].astype(str),
+                "match_status": group["match_status"].astype(str),
+                "matched_id": group["matched_id"].fillna("None").astype(str),
+                "match_distance_km": group["match_distance_km"].map(
+                    lambda distance: (
+                        f"{distance:.2f} km"
+                        if pd.notna(distance)
+                        else "Not paired"
+                    )
+                ),
+                "confidence": group["confidence"],
+            }
+        ).to_numpy()
+        traces.append(
+            go.Scattermapbox(
+                lat=group["latitude"],
+                lon=group["longitude"],
+                mode="markers",
+                name=source,
+                marker={
+                    "size": 11,
+                    "color": color,
+                    "opacity": 0.9,
+                },
+                customdata=customdata,
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    "Satellite: %{customdata[1]}<br>"
+                    "Region: %{customdata[2]}<br>"
+                    "Observed: %{customdata[3]}<br>"
+                    "Status: %{customdata[4]}<br>"
+                    "Matched IDs: %{customdata[5]}<br>"
+                    "Pair separation: %{customdata[6]}<br>"
+                    "Confidence: %{customdata[7]}<br>"
+                    f"Coverage radius: {radius_km:.1f} km"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+    for source in MAP_SOURCE_COLORS:
+        group = frame_data[frame_data["source"] == source]
+        latitudes = []
+        longitudes = []
+        for row in group.itertuples():
+            circle_latitudes, circle_longitudes = coverage_circle(
+                row.latitude, row.longitude, radius_km
+            )
+            latitudes.extend(circle_latitudes + [None])
+            longitudes.extend(circle_longitudes + [None])
+        traces.append(
+            go.Scattermapbox(
+                lat=latitudes,
+                lon=longitudes,
+                mode="lines",
+                line={"color": MAP_SOURCE_COLORS[source], "width": 1},
+                fill="toself",
+                fillcolor=MAP_CIRCLE_COLORS[source],
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+
+    return traces
 
 
 def load_observations(uploaded_file=None) -> pd.DataFrame:
@@ -161,7 +255,7 @@ with st.expander("Start here: what am I looking at?", expanded=True):
         A dot on the map is a **possible hotspot**, not proof of a fire.
 
         - **Colors** show which satellite detected the signal.
-        - **Larger dots** represent higher satellite confidence.
+        - Hover over a dot to see its confidence and match distance.
         - **Matched** means both satellites saw signals close together in
           time and location.
         - Use the filters on the left to ask simple questions, such as
@@ -193,12 +287,15 @@ with st.sidebar:
         help="This helps compare signals detected near the same time.",
     )
     max_distance_km = st.slider(
-        "How close on the map?",
+        "What match and coverage radius should we use?",
         1.0,
         25.0,
         5.0,
         step=0.5,
-        help="This helps compare signals detected near the same place.",
+        help=(
+            "Signals from different satellites within this distance may be "
+            "paired. Each map coverage circle uses this as its radius."
+        ),
     )
     map_mode = st.radio(
         "How should we show the map?",
@@ -260,7 +357,7 @@ with overview_tab:
     if result.empty:
         st.warning("No signals are available for the map.")
     else:
-        map_data = result.copy()
+        map_data = build_map_features(result)
         map_data["observation_date"] = map_data["observed_at"].dt.strftime("%Y-%m-%d")
         center = {
             "lat": float(map_data["latitude"].mean()),
@@ -285,33 +382,104 @@ with overview_tab:
                 ],
             )
         else:
-            map_chart = px.scatter_mapbox(
-                map_data,
-                lat="latitude",
-                lon="longitude",
-                color="source",
-                size="confidence",
-                hover_name="id",
-                hover_data=["region", "observed_at", "match_status", "confidence"],
-                animation_frame="observation_date",
-                size_max=28,
-                center=center,
-                zoom=4,
-                height=520,
-                mapbox_style="open-street-map",
-                color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
-            )
+            dates = sorted(map_data["observation_date"].unique())
+            map_chart = go.Figure(data=_map_frame_data(
+                map_data, dates[0], max_distance_km
+            ))
+            map_chart.frames = [
+                go.Frame(
+                    data=_map_frame_data(map_data, date, max_distance_km),
+                    name=date,
+                    traces=list(range(6)),
+                )
+                for date in dates
+            ]
+            if len(dates) > 1:
+                map_chart.update_layout(
+                    updatemenus=[
+                        {
+                            "type": "buttons",
+                            "showactive": False,
+                            "buttons": [
+                                {
+                                    "label": "Play",
+                                    "method": "animate",
+                                    "args": [
+                                        None,
+                                        {
+                                            "frame": {
+                                                "duration": 700,
+                                                "redraw": True,
+                                            },
+                                            "transition": {"duration": 250},
+                                            "fromcurrent": True,
+                                        },
+                                    ],
+                                },
+                                {
+                                    "label": "Pause",
+                                    "method": "animate",
+                                    "args": [
+                                        [None],
+                                        {
+                                            "frame": {
+                                                "duration": 0,
+                                                "redraw": False,
+                                            },
+                                            "mode": "immediate",
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                    sliders=[
+                        {
+                            "active": 0,
+                            "steps": [
+                                {
+                                    "label": date,
+                                    "method": "animate",
+                                    "args": [
+                                        [date],
+                                        {
+                                            "mode": "immediate",
+                                            "frame": {
+                                                "duration": 0,
+                                                "redraw": True,
+                                            },
+                                            "transition": {"duration": 0},
+                                        },
+                                    ],
+                                }
+                                for date in dates
+                            ],
+                        }
+                    ],
+                )
         map_chart.update_layout(
             margin=dict(t=0, b=0, l=0, r=0),
             legend_title_text="Satellite source",
             paper_bgcolor="rgba(0,0,0,0)",
         )
-        map_chart.update_traces(marker={"opacity": 0.88})
+        if map_mode == "Individual signals":
+            map_chart.update_layout(
+                mapbox={
+                    "style": "open-street-map",
+                    "center": center,
+                    "zoom": 4,
+                },
+                height=520,
+            )
         st.plotly_chart(map_chart, use_container_width=True)
         if map_mode == "Individual signals":
             st.caption(
-                "Use the timeline to replay signals by date. Marker size shows "
-                "confidence; color identifies the satellite source."
+                f"The small center dot stays readable; its {max_distance_km:.1f} km "
+                "coverage circle scales with map zoom "
+                f"({max_distance_km * 2:.1f} km diameter). Close MODIS and "
+                "VIIRS detections are shown once at their midpoint; hover to "
+                "see their measured separation. Use the timeline to replay "
+                "signals by date."
             )
         else:
             st.caption(
@@ -410,6 +578,7 @@ with analysis_tab:
                     "confidence",
                     "match_status",
                     "matched_id",
+                    "match_distance_km",
                 ]
             ],
             use_container_width=True,

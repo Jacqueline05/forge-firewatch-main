@@ -87,6 +87,8 @@ flake8 app.py src tests
 
 - Standardizes compatible MODIS and VIIRS observation fields
 - Matches observations using configurable time and geographic thresholds
+- Pairs each detection with at most one nearest cross-satellite observation
+- Shows the measured MODIS/VIIRS separation and a coverage circle on the map
 - Classifies records as matched, MODIS-only, or VIIRS-only
 - Filters observations by satellite source and confidence
 - Displays a map and daily trend chart in Streamlit
@@ -136,8 +138,13 @@ flake8 app.py src tests
 ## Harmonization approach
 
 Records are considered potential matches when they are within the configured
-time window and geographic radius. Matching is an analytical convenience, not
-proof that two records represent the same physical fire.
+time window and geographic radius. Each detection is paired with at most one
+nearest cross-satellite observation, and the measured separation is included
+in the harmonized results. On the map, a matched pair appears once at its
+midpoint. Coverage circles use the selected geographic threshold as the
+radius, so their diameter is twice that distance. Matching is an analytical
+convenience, not proof that two records represent the same physical fire or
+that a circle represents burned area.
 
 The dashboard explicitly distinguishes:
 

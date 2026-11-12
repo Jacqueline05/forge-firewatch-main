@@ -50,41 +50,66 @@ def _distance_km(first: pd.Series, second: pd.Series) -> float:
 def harmonize(
     data: pd.DataFrame, config: MatchConfig | None = None
 ) -> pd.DataFrame:
-    """Classify MODIS and VIIRS records by potential observation matches."""
+    """Classify records and pair the nearest compatible MODIS/VIIRS signals."""
     config = config or MatchConfig()
     validate_schema(data)
     result = data.copy()
     result["observed_at"] = pd.to_datetime(result["observed_at"], utc=True)
-    result["match_status"] = "unmatched"
-    result["matched_id"] = pd.NA
+    records = list(result.to_dict("records"))
+    candidates = []
 
-    modis = result[result["source"] == "MODIS"]
-    viirs = result[result["source"] == "VIIRS"]
-    for modis_index, modis_row in modis.iterrows():
-        for viirs_index, viirs_row in viirs.iterrows():
+    for modis_position, modis_row in enumerate(records):
+        if modis_row["source"] != "MODIS":
+            continue
+        for viirs_position, viirs_row in enumerate(records):
+            if viirs_row["source"] != "VIIRS":
+                continue
             minutes = abs(
                 (
                     modis_row["observed_at"] - viirs_row["observed_at"]
                 ).total_seconds()
             ) / 60
-            if minutes > config.max_minutes:
-                continue
-            if _distance_km(modis_row, viirs_row) > config.max_distance_km:
-                continue
-            result.loc[
-                modis_index, ["match_status", "matched_id"]
-            ] = ["matched", viirs_row["id"]]
-            result.loc[viirs_index, ["match_status", "matched_id"]] = [
-                "matched",
-                modis_row["id"],
-            ]
+            distance_km = _distance_km(
+                pd.Series(modis_row), pd.Series(viirs_row)
+            )
+            if (
+                minutes <= config.max_minutes
+                and distance_km <= config.max_distance_km
+            ):
+                candidates.append(
+                    (
+                        distance_km,
+                        minutes,
+                        modis_position,
+                        viirs_position,
+                    )
+                )
 
-    result.loc[
-        (result["source"] == "MODIS") & (result["match_status"] != "matched"),
-        "match_status",
-    ] = "MODIS only"
-    result.loc[
-        (result["source"] == "VIIRS") & (result["match_status"] != "matched"),
-        "match_status",
-    ] = "VIIRS only"
+    match_status = [
+        "MODIS only" if row["source"] == "MODIS" else "VIIRS only"
+        for row in records
+    ]
+    matched_id = [pd.NA] * len(records)
+    match_distance_km = [float("nan")] * len(records)
+    matched_modis = set()
+    matched_viirs = set()
+
+    for distance_km, _, modis_position, viirs_position in sorted(candidates):
+        if modis_position in matched_modis or viirs_position in matched_viirs:
+            continue
+
+        modis_row = records[modis_position]
+        viirs_row = records[viirs_position]
+        match_status[modis_position] = "matched"
+        match_status[viirs_position] = "matched"
+        matched_id[modis_position] = viirs_row["id"]
+        matched_id[viirs_position] = modis_row["id"]
+        match_distance_km[modis_position] = distance_km
+        match_distance_km[viirs_position] = distance_km
+        matched_modis.add(modis_position)
+        matched_viirs.add(viirs_position)
+
+    result["match_status"] = match_status
+    result["matched_id"] = matched_id
+    result["match_distance_km"] = match_distance_km
     return result
