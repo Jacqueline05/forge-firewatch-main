@@ -85,16 +85,45 @@ flake8 app.py src tests
 
 ## What the MVP demonstrates
 
-- Standardizes compatible MODIS and VIIRS observation fields
-- Matches observations using configurable time and geographic thresholds
+**Fire intelligence for Sarawak (Today and Fire events tabs)**
+
+- **Fire areas:** groups detections close in place and time into one fire,
+  with how many days it has burned and which direction it is spreading
+- **Peatland flag:** marks fires on peat, the main source of Borneo's haze
+  (needs a peat layer, see below)
+- **Attention score (0-100):** combines satellite agreement, persistence,
+  peatland and confidence, with a plain explanation for each fire
+- **Smoke direction outlook:** lists towns downwind of active fires in the
+  next 24 hours using the Open-Meteo wind forecast
+- **Daily summary** in English or Bahasa Malaysia
+- **Ground reports:** users can confirm a fire or mark a false alarm; false
+  alarm locations are flagged automatically in future data
+- **False-alarm filter:** hides FIRMS volcano/industrial/offshore detections,
+  known heat sources, and reported false alarms
+- **Compare years:** this season against the same window in past years
+  (MODIS archive since 2000)
+
+**Live data:** latest MODIS and VIIRS (S-NPP, NOAA-20, NOAA-21) detections
+from NASA FIRMS for Sarawak or all of Borneo.
+
+**Satellite comparison (Signals map and Explore signals tabs)**
+
+- Matches MODIS and VIIRS observations using configurable time and distance
 - Pairs each detection with at most one nearest cross-satellite observation
-- Shows the measured MODIS/VIIRS separation and a coverage circle on the map
 - Classifies records as matched, MODIS-only, or VIIRS-only
-- Filters observations by date, region, satellite source, and confidence
-- Displays a map and daily trend chart in Streamlit
-- Provides a team login screen and sign-out control
-- Shows confidence distributions, match-rate KPIs, and match-status breakdowns
-- Validates the harmonization logic with pytest
+- Filters by date, region, satellite source, and confidence
+- Map with timeline, trend, confidence and regional charts, CSV download
+
+## Optional data and keys
+
+| What | How to enable |
+|---|---|
+| Live NASA FIRMS data and year comparison | Request a free key at <https://firms.modaps.eosdis.nasa.gov/api/map_key/> and set `FIRMS_MAP_KEY` in `.streamlit/secrets.toml` |
+| Peatland layer for live data | Save a peatland map for Borneo as `data/peatland.geojson` (WGS84 polygons). The demo uses illustrative areas in `data/demo_peat_illustrative.geojson`, which are **not** real peat boundaries |
+| Known heat sources | Add verified gas flares, factories, etc. to `data/known_heat_sources.csv` |
+| Where ground reports are saved | Defaults to `data/feedback.csv` (not committed). On Streamlit Cloud the file resets when the app restarts; set `FIREWATCH_FEEDBACK_PATH` to persistent storage to keep reports |
+
+The wind forecast (Open-Meteo) needs no key.
 
 ## Run locally (quick reference)
 
@@ -127,12 +156,29 @@ flake8 app.py src tests
 ## Repository structure
 
 ```text
-├── app.py                         # Streamlit dashboard
-├── data/sample_hotspots.csv       # Fictional demonstration records
-├── src/firewatch/harmonize.py     # Cleaning and matching engine
-├── tests/test_harmonize.py        # Unit tests
-├── .github/workflows/ci.yml       # Lint and test automation
-└── docs/                          # Architecture and data notes
+├── app.py                              # Streamlit dashboard
+├── data/
+│   ├── sample_hotspots.csv             # Fictional demonstration records
+│   ├── demo_peat_illustrative.geojson  # Illustrative peat areas (demo only)
+│   └── known_heat_sources.csv          # Verified non-fire heat sources
+├── src/firewatch/
+│   ├── loaders.py                      # CSV / FIRMS field normalization
+│   ├── harmonize.py                    # MODIS/VIIRS matching engine
+│   ├── filters.py                      # Date, region, source filters
+│   ├── events.py                       # Group detections into fire areas
+│   ├── peat.py                         # Peatland point-in-polygon check
+│   ├── scoring.py                      # Attention score
+│   ├── haze.py                         # Wind forecast and smoke outlook
+│   ├── summary.py                      # English / Bahasa Malaysia summary
+│   ├── feedback.py                     # Ground reports
+│   ├── false_alarms.py                 # Known heat sources, FIRMS type
+│   ├── firms.py                        # NASA FIRMS live and history API
+│   ├── places.py                       # Towns and geography helpers
+│   ├── map_features.py                 # Map pairs and coverage circles
+│   └── auth.py                         # Team login
+├── tests/                              # Unit tests (pytest)
+├── .github/workflows/ci.yml            # Lint and test automation
+└── docs/                               # Architecture and data notes
 ```
 
 ## Harmonization approach
@@ -152,15 +198,12 @@ The dashboard explicitly distinguishes:
 - **MODIS only:** a record with no compatible VIIRS observation
 - **VIIRS only:** a record with no compatible MODIS observation
 
-## Planned NASA FIRMS integration
+## Next steps
 
-1. Confirm the official NASA Space Apps 2026 challenge requirements.
-2. Obtain authorized MODIS and VIIRS data through NASA FIRMS.
-3. Map source fields into the schema documented in
-   [`docs/data-contract.md`](docs/data-contract.md).
-4. Run validation checks for coordinates, timestamps, confidence, and
-   duplicate records.
-5. Re-run the test suite before publishing dashboard results.
+1. Load a real peatland map for Borneo as `data/peatland.geojson`.
+2. Fill `data/known_heat_sources.csv` with verified industrial heat sources.
+3. Choose persistent storage for ground reports before wider use.
+4. Confirm the official NASA Space Apps 2026 challenge requirements.
 
 ## Important limitations
 
@@ -168,7 +211,8 @@ Satellite hotspots indicate detected thermal anomalies. They do not, by
 themselves, confirm a fire's cause, establish burned area, or measure haze
 concentration. Borneo FireWatch is an exploratory information tool and is not
 a replacement for official fire verification, emergency response, or
-air-quality monitoring.
+air-quality monitoring. The smoke direction outlook is a rough straight-line
+estimate from the average wind, not an air-quality forecast.
 
 ## Team
 

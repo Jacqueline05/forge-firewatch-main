@@ -1,3 +1,4 @@
+import html
 import io
 from pathlib import Path
 import sys
@@ -16,9 +17,147 @@ from firewatch.map_features import (  # noqa: E402
 )
 from firewatch.auth import authenticate  # noqa: E402
 from firewatch.loaders import load_observations, quality_score  # noqa: E402
+from firewatch.events import EventConfig, build_events  # noqa: E402
+from firewatch.false_alarms import (  # noqa: E402
+    flag_false_alarms,
+    load_known_sources,
+)
+from firewatch.feedback import (  # noqa: E402
+    VERDICTS,
+    FeedbackStore,
+    attach_feedback,
+    false_alarm_sites,
+)
+from firewatch.firms import (  # noqa: E402
+    AREAS,
+    MAX_DAY_RANGE,
+    FirmsError,
+    fetch_live_observations,
+    history_counts,
+)
+from firewatch.haze import Wind, WeatherError, fetch_winds, haze_outlook  # noqa: E402
+from firewatch.peat import load_peat_layer, points_on_peat  # noqa: E402
+from firewatch.places import LOCAL_UTC_OFFSET, compass  # noqa: E402
+from firewatch.scoring import LEVEL_MS, score_events  # noqa: E402
+from firewatch.summary import format_date, summary_facts  # noqa: E402
 
 
-DATA_PATH = Path(__file__).parent / "data" / "sample_hotspots.csv"
+DATA_DIR = Path(__file__).parent / "data"
+DATA_PATH = DATA_DIR / "sample_hotspots.csv"
+DEMO_PEAT_PATH = DATA_DIR / "demo_peat_illustrative.geojson"
+# Put a real peatland GeoJSON here to enable the peat layer for live data.
+PEAT_PATH = DATA_DIR / "peatland.geojson"
+KNOWN_SOURCES_PATH = DATA_DIR / "known_heat_sources.csv"
+DEFAULT_FEEDBACK_PATH = DATA_DIR / "feedback.csv"
+# Demo mode: typical south-west monsoon wind (from SW, ~12 km/h).
+DEMO_WIND = Wind(speed_kmh=12.0, toward_deg=45.0)
+HAZE_EVENT_LIMIT = 15
+ATTENTION_COLORS = {"High": "#d62828", "Medium": "#f4a261", "Low": "#8d99ae"}
+DATA_SOURCES = ["Demo data", "Live NASA FIRMS", "Upload CSV"]
+ARROWS = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"]
+SUMMARY_TEXT = {
+    "en": {
+        "title": "Situation summary",
+        "active": "Active today",
+        "new": "New today",
+        "both": "Both satellites",
+        "top": "Top fire areas",
+        "near": "near",
+        "levels": {"High": "HIGH", "Medium": "MEDIUM", "Low": "LOW"},
+        "both_tag": "Seen by both satellites",
+        "one_tag": "Seen by 1 satellite only",
+        "days": "Detected on {n} days",
+        "day": "Detected on 1 day",
+        "peat": "On peatland",
+        "spread": "Spreading {d}",
+        "towns": "Smoke may reach (next 24 h)",
+        "town": "Town",
+        "eta": "Arrival",
+        "hours": "~{n} h",
+        "none": "No active fire areas on the latest day.",
+        "note": "Hotspots are satellite heat signals, not confirmed fires. "
+                "Smoke direction is a rough wind-based estimate.",
+        "tips": {
+            "both": "NASA's MODIS and VIIRS satellites both detected heat here at "
+                    "about the same time. Two independent sensors agreeing makes "
+                    "a real fire more likely.",
+            "one": "Only one of the two satellites (MODIS or VIIRS) detected heat "
+                   "here. It may be small, short-lived, hidden by cloud, or a "
+                   "false alarm, so it is less certain.",
+            "days": "The number of different days (Malaysia Time) on which heat "
+                    "was detected here. More days means the fire keeps burning.",
+            "peat": "This area is on peat soil. Peat fires smoulder underground "
+                    "for weeks and cause most of Borneo's haze.",
+            "spread": "The direction the fire has moved between the first and the "
+                      "latest day it was detected.",
+        },
+        "legend": "What do these labels mean?",
+        "legend_rows": [
+            ("97", "Attention score from 0 to 100. Higher means it needs "
+                   "attention sooner (High is 70 or more, Medium 40 to 69)."),
+            ("🛰️ Seen by both satellites", "MODIS and VIIRS both saw it: more "
+                                           "likely a real fire."),
+            ("🛰️ Seen by 1 satellite only", "Only one satellite saw it: less "
+                                            "certain, could be a false alarm."),
+            ("📅 Detected on 2 days", "Heat was detected on 2 different days: the "
+                                     "fire is still burning."),
+            ("🟤 On peatland", "Burning on peat soil, which produces heavy haze."),
+            ("↗ Spreading north-east", "The direction the fire is moving."),
+            ("💨 ~8 h", "Rough time for smoke to reach the town with today's wind."),
+        ],
+    },
+    "ms": {
+        "title": "Ringkasan situasi",
+        "active": "Aktif hari ini",
+        "new": "Baharu hari ini",
+        "both": "Kedua-dua satelit",
+        "top": "Kawasan kebakaran utama",
+        "near": "berhampiran",
+        "levels": {"High": "TINGGI", "Medium": "SEDERHANA", "Low": "RENDAH"},
+        "both_tag": "Dikesan kedua-dua satelit",
+        "one_tag": "Dikesan 1 satelit sahaja",
+        "days": "Dikesan selama {n} hari",
+        "day": "Dikesan 1 hari",
+        "peat": "Atas tanah gambut",
+        "spread": "Merebak ke {d}",
+        "towns": "Asap mungkin sampai (24 jam)",
+        "town": "Bandar",
+        "eta": "Tiba",
+        "hours": "~{n} jam",
+        "none": "Tiada kawasan kebakaran aktif pada hari terkini.",
+        "note": "Titik panas ialah isyarat haba satelit, bukan pengesahan "
+                "kebakaran. Arah asap ialah anggaran kasar berdasarkan angin.",
+        "tips": {
+            "both": "Satelit MODIS dan VIIRS NASA kedua-duanya mengesan haba di "
+                    "sini pada masa yang hampir sama. Dua pengesan bebas yang "
+                    "sepakat menjadikan kebakaran sebenar lebih berkemungkinan.",
+            "one": "Hanya satu daripada dua satelit (MODIS atau VIIRS) mengesan "
+                   "haba di sini. Mungkin kecil, singkat, dilindungi awan atau "
+                   "amaran palsu, jadi kurang pasti.",
+            "days": "Bilangan hari berbeza (Waktu Malaysia) haba dikesan di sini. "
+                    "Lebih banyak hari bermakna kebakaran masih berterusan.",
+            "peat": "Kawasan ini di atas tanah gambut. Kebakaran gambut membara "
+                    "di bawah tanah berminggu-minggu dan punca utama jerebu di Borneo.",
+            "spread": "Arah kebakaran bergerak antara hari pertama dan hari "
+                      "terkini ia dikesan.",
+        },
+        "legend": "Apakah maksud label ini?",
+        "legend_rows": [
+            ("97", "Skor perhatian 0 hingga 100. Lebih tinggi bermakna perlu "
+                   "diberi perhatian segera (Tinggi 70 ke atas, Sederhana 40 hingga 69)."),
+            ("🛰️ Dikesan kedua-dua satelit", "MODIS dan VIIRS kedua-duanya "
+                                             "mengesan: lebih berkemungkinan kebakaran sebenar."),
+            ("🛰️ Dikesan 1 satelit sahaja", "Hanya satu satelit mengesan: kurang "
+                                            "pasti, mungkin amaran palsu."),
+            ("📅 Dikesan selama 2 hari", "Haba dikesan pada 2 hari berbeza: "
+                                        "kebakaran masih berterusan."),
+            ("🟤 Atas tanah gambut", "Terbakar di tanah gambut yang menghasilkan "
+                                    "jerebu tebal."),
+            ("↗ Merebak ke timur laut", "Arah kebakaran sedang bergerak."),
+            ("💨 ~8 jam", "Anggaran masa asap sampai ke bandar dengan angin hari ini."),
+        ],
+    },
+}
 MAP_SOURCE_COLORS = {
     "MODIS": "#e76f51",
     "VIIRS": "#2a9d8f",
@@ -118,6 +257,26 @@ def load_data(file_bytes: bytes | None) -> pd.DataFrame:
     )
 
 
+@st.cache_data(show_spinner="Downloading the latest NASA FIRMS data...", ttl=1800)
+def load_live(map_key: str, area: str, day_range: int) -> pd.DataFrame:
+    return fetch_live_observations(map_key, area, day_range)
+
+
+@st.cache_data(show_spinner="Downloading past years from NASA FIRMS...", ttl=86400)
+def load_history(map_key: str, area: str, end) -> pd.DataFrame:
+    return history_counts(map_key, area, end)
+
+
+@st.cache_data(show_spinner="Fetching wind forecast...", ttl=3600)
+def load_winds(points: tuple) -> list:
+    return fetch_winds(list(points))
+
+
+@st.cache_resource
+def load_peat(path: str, illustrative: bool):
+    return load_peat_layer(path, illustrative=illustrative)
+
+
 @st.cache_data(show_spinner="Matching MODIS and VIIRS signals...")
 def run_harmonize(
     observations: pd.DataFrame, max_minutes: int, max_distance_km: float
@@ -132,34 +291,188 @@ st.set_page_config(
     page_title="Borneo FireWatch",
     page_icon="🔥",
     layout="wide",
-    initial_sidebar_state="expanded",
+    # The sidebar works as a hamburger menu: closed until the user opens it.
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown(
     """
     <style>
+    .block-container { padding-top: 2.5rem; }
     .hero {
-        padding: 2rem 2.2rem;
-        border-radius: 1rem;
+        padding: 1.1rem 1.6rem;
+        border-radius: .9rem;
         background: linear-gradient(135deg, #073b3a 0%, #0b6e69 55%, #f4a261 140%);
         color: white;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1rem;
     }
-    .hero h1 { color: white; margin-bottom: .3rem; }
-    .hero p { color: #e7f6f2; font-size: 1.05rem; }
-    .eyebrow { color: #ffd166; text-transform: uppercase; letter-spacing: .12em; font-weight: 700; }
-    [data-testid="stSidebarUserContent"] > div[data-testid="stVerticalBlock"] {
+    .hero h1 { color: white; margin: 0 0 .15rem 0; padding: 0; font-size: 1.9rem; }
+    .hero p { color: #e7f6f2; font-size: .98rem; margin: 0; }
+    .eyebrow {
+        color: #ffd166; text-transform: uppercase; letter-spacing: .12em;
+        font-weight: 700; font-size: .72rem;
+    }
+    /* Let the sidebar's content fill its height so Sign out can sit at the bottom. */
+    [data-testid="stSidebarUserContent"] {
         display: flex;
         flex-direction: column;
-        min-height: calc(100vh - 2rem);
+        min-height: calc(100vh - 5rem);
     }
-    .st-key-sidebar-signout {
-        position: sticky;
-        bottom: 0;
-        z-index: 2;
+    [data-testid="stSidebarUserContent"] > div,
+    [data-testid="stSidebarUserContent"] > div > div,
+    [data-testid="stSidebarUserContent"] > div > div > div,
+    [data-testid="stSidebarUserContent"] > div > div > div > div {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-signout) {
         margin-top: auto;
-        padding-top: 0.75rem;
-        background: var(--background-color);
+        padding-top: .75rem;
+    }
+    /* Section tabs as frosted-glass pills */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: .35rem;
+        padding: .35rem;
+        border-radius: 999px;
+        background: rgba(128, 128, 128, .10);
+        border: 1px solid rgba(255, 255, 255, .10);
+        backdrop-filter: blur(12px) saturate(140%);
+        -webkit-backdrop-filter: blur(12px) saturate(140%);
+        box-shadow: 0 6px 24px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .08);
+        width: fit-content;
+        max-width: 100%;
+        overflow-x: auto;
+        margin-bottom: .6rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: auto;
+        padding: .5rem 1.05rem;
+        border-radius: 999px;
+        background: transparent;
+        border: 1px solid transparent;
+        transition: background .2s ease, box-shadow .2s ease, transform .15s ease;
+        white-space: nowrap;
+    }
+    .stTabs [data-baseweb="tab"] p { font-size: .92rem; font-weight: 600; }
+    .stTabs [data-baseweb="tab"]:hover {
+        background: rgba(255, 255, 255, .08);
+        border-color: rgba(255, 255, 255, .12);
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, rgba(42, 157, 143, .85), rgba(11, 110, 105, .75) 55%,
+                                    rgba(244, 162, 97, .65));
+        border-color: rgba(255, 255, 255, .22);
+        box-shadow: 0 4px 16px rgba(42, 157, 143, .35), inset 0 1px 0 rgba(255, 255, 255, .25);
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] p { color: #fff; }
+    .stTabs [data-baseweb="tab-highlight"],
+    .stTabs [data-baseweb="tab-border"] { display: none; }
+
+    /* Today headline numbers: 4 across on desktop, 2 x 2 on phones */
+    .fw-kpis {
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: .7rem;
+        margin: .2rem 0 1rem;
+    }
+    .fw-kpi {
+        display: flex; align-items: center; gap: .7rem; cursor: help;
+        padding: .75rem .9rem; border-radius: .8rem;
+        border: 1px solid rgba(128, 128, 128, .22);
+        background: rgba(128, 128, 128, .07);
+    }
+    .fw-kpi-icon { font-size: 1.5rem; }
+    .fw-kpi-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+    .fw-kpi-lbl { font-size: .78rem; opacity: .75; }
+    @media (max-width: 640px) {
+        .fw-kpis { grid-template-columns: repeat(2, 1fr); gap: .5rem; }
+        .fw-kpi { padding: .6rem .7rem; }
+        .fw-kpi-num { font-size: 1.3rem; }
+        .stTabs [data-baseweb="tab"] { padding: .4rem .7rem; }
+        .stTabs [data-baseweb="tab"] p { font-size: .82rem; }
+    }
+
+    /* Daily summary card */
+    .fw-summary {
+        border: 1px solid rgba(128, 128, 128, .28);
+        border-radius: .9rem;
+        padding: 1rem 1.1rem .9rem;
+    }
+    .fw-head {
+        display: flex; justify-content: space-between; align-items: baseline;
+        flex-wrap: wrap; gap: .3rem; margin-bottom: .8rem;
+    }
+    .fw-title { font-weight: 700; font-size: 1.05rem; }
+    .fw-date { font-size: .8rem; opacity: .7; font-variant-numeric: tabular-nums; }
+    .fw-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+    .fw-tile {
+        background: rgba(42, 157, 143, .12);
+        border-radius: .6rem; padding: .55rem .4rem; text-align: center;
+    }
+    .fw-num { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+    .fw-lbl { font-size: .72rem; opacity: .75; }
+    .fw-section {
+        margin: 1rem 0 .45rem; font-size: .72rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .08em; opacity: .7;
+    }
+    .fw-card {
+        border: 1px solid rgba(128, 128, 128, .22); border-left: 4px solid;
+        border-radius: .6rem; padding: .55rem .7rem; margin-bottom: .5rem;
+    }
+    .fw-card-top { display: flex; align-items: center; gap: .5rem; }
+    .fw-badge {
+        color: #fff; font-size: .65rem; font-weight: 700; letter-spacing: .05em;
+        padding: .12rem .45rem; border-radius: 999px;
+    }
+    .fw-town { font-weight: 700; }
+    .fw-dist { font-size: .75rem; opacity: .65; }
+    .fw-score { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .fw-bar {
+        height: 5px; border-radius: 999px; background: rgba(128, 128, 128, .2);
+        margin: .4rem 0 .45rem; overflow: hidden;
+    }
+    .fw-bar > div { height: 100%; border-radius: 999px; }
+    .fw-tags { display: flex; flex-wrap: wrap; gap: .3rem; }
+    .fw-tags span {
+        font-size: .72rem; padding: .1rem .5rem; border-radius: 999px;
+        background: rgba(128, 128, 128, .14);
+    }
+    .fw-towns { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    .fw-towns th {
+        text-align: left; font-size: .7rem; opacity: .65; font-weight: 600;
+        padding: 0 .2rem .25rem; border: none;
+    }
+    .fw-towns td {
+        padding: .3rem .2rem; border: none;
+        border-top: 1px solid rgba(128, 128, 128, .18);
+    }
+    .fw-towns .fw-eta { text-align: right; font-variant-numeric: tabular-nums; }
+    .fw-note { margin-top: .8rem; font-size: .72rem; opacity: .6; font-style: italic; }
+    .fw-tags span[title], .fw-score[title] { cursor: help; }
+    .fw-legend {
+        margin-top: .9rem; border-radius: .6rem;
+        background: rgba(42, 157, 143, .08); padding: .45rem .7rem;
+    }
+    .fw-legend summary { cursor: pointer; font-size: .8rem; font-weight: 600; }
+    .fw-legend table { width: 100%; border-collapse: collapse; margin-top: .4rem; }
+    .fw-legend td {
+        border: none; padding: .3rem .2rem; font-size: .76rem; vertical-align: top;
+        border-top: 1px solid rgba(128, 128, 128, .15);
+    }
+    .fw-legend .fw-key { white-space: nowrap; font-weight: 600; padding-right: .6rem; }
+
+    /* Hamburger-style menu button (opens the sidebar). */
+    [data-testid="stSidebarCollapsedControl"] button svg { display: none; }
+    [data-testid="stSidebarCollapsedControl"] button::after {
+        content: "☰  Menu";
+        font-size: 1rem;
+        font-weight: 600;
+        white-space: pre;
+    }
+    [data-testid="stSidebarCollapsedControl"] button {
+        width: auto;
+        padding: .35rem .8rem;
+        border: 1px solid rgba(128, 128, 128, .35);
+        border-radius: .5rem;
     }
     </style>
     """,
@@ -188,21 +501,31 @@ def login_screen() -> bool:
         """,
         unsafe_allow_html=True,
     )
-    with st.form("login"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
+    _, form_col, _ = st.columns((1, 1.3, 1))
+    with form_col, st.form("login"):
+        st.markdown("#### Sign in")
+        username = st.text_input("Username", placeholder="Your team username")
+        password = st.text_input(
+            "Password", type="password", placeholder="Your team password"
+        )
+        submitted = st.form_submit_button(
+            "Sign in", type="primary", use_container_width=True
+        )
         if submitted:
-            valid = authenticate(
-                username,
-                password,
-                get_secret("FIREWATCH_USERNAME"),
-                get_secret("FIREWATCH_PASSWORD"),
-            )
-            if valid:
+            expected_user = get_secret("FIREWATCH_USERNAME")
+            expected_password = get_secret("FIREWATCH_PASSWORD")
+            if not expected_user or not expected_password:
+                st.error(
+                    "Sign-in is not set up yet. Add FIREWATCH_USERNAME and "
+                    "FIREWATCH_PASSWORD to the app's secrets."
+                )
+            elif authenticate(username, password, expected_user, expected_password):
                 st.session_state["authenticated"] = True
+                st.session_state["username"] = username
                 st.rerun()
-            st.error("Invalid credentials or login is not configured.")
+            else:
+                st.error("Incorrect username or password. Please try again.")
+        st.caption("Tip: press Enter to sign in.")
     return False
 
 
@@ -215,77 +538,197 @@ st.markdown(
         <div class="eyebrow">FORGEX6 • SARAWAK AND BORNEO</div>
         <h1>🔥 Borneo FireWatch</h1>
         <p>Making satellite heat signals easier for everyone to explore,
-        compare, and understand.</p>
+        compare and understand.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-with st.expander("Start here: what am I looking at?", expanded=True):
+with st.expander("Start here: what am I looking at?", expanded=False):
     st.markdown(
         """
         Borneo FireWatch compares heat signals seen by two NASA satellites.
         A dot on the map is a **possible hotspot**, not proof of a fire.
 
-        - **Colors** show which satellite detected the signal.
-        - Hover over a dot to see its confidence and match distance.
-        - **Matched** means both satellites saw signals close together in
-          time and location.
-        - Use the filters on the left to ask simple questions, such as
-          “Where do both satellites agree?”
+        - **📍 Today** gives a short summary, the fire areas that need
+          attention and the towns smoke may drift towards.
+        - **🔥 Fire areas** lists each fire area and lets you report what is
+          happening on the ground.
+        - **🛰️ Satellite signals** shows every heat signal and where MODIS
+          and VIIRS agree.
+        - Open **☰ Menu** (top left) to choose the data, dates, areas,
+          language and filters.
+        - Hover over a dot, tag or number to see what it means.
         """
     )
 
 with st.sidebar:
-    st.header("Explore the map")
-    st.caption("Use these simple controls to focus the story you want to see.")
-    sources = st.multiselect(
-        "Which satellite signals should we show?",
-        options=["MODIS", "VIIRS"],
-        default=["MODIS", "VIIRS"],
-        help="Choose one or both satellite sources.",
-    )
-    confidence = st.slider(
-        "How certain should a signal be?",
-        0,
-        100,
-        0,
-        help="Higher values show only stronger satellite signals.",
-    )
-    max_minutes = st.slider(
-        "How close in time should signals be?",
-        5,
-        120,
-        30,
-        help="This helps compare signals detected near the same time.",
-    )
-    max_distance_km = st.slider(
-        "What match and coverage radius should we use?",
-        1.0,
-        25.0,
-        5.0,
-        step=0.5,
+    data_source = st.radio(
+        "Data source",
+        DATA_SOURCES,
         help=(
-            "Signals from different satellites within this distance may be "
-            "paired. Each map coverage circle uses this as its radius."
+            "Demo data is fictional. Live data downloads the latest MODIS and "
+            "VIIRS detections from NASA FIRMS."
         ),
     )
-    map_mode = st.radio(
-        "How should we show the map?",
-        ["Individual signals", "Signal concentration"],
-        help="Use individual signals for detail or concentration to see patterns.",
+    live_area, live_days, uploaded_file = "Sarawak", 3, None
+    if data_source == "Live NASA FIRMS":
+        live_area = st.selectbox("Area", list(AREAS))
+        live_days = st.slider("Days of data", 1, MAX_DAY_RANGE, 3)
+    elif data_source == "Upload CSV":
+        uploaded_file = st.file_uploader(
+            "Upload NASA FIRMS-compatible CSV",
+            type=["csv"],
+            help="Accepts the project schema or common FIRMS fields such as acq_date.",
+        )
+    language = st.radio(
+        "Language / Bahasa", ["English", "Bahasa Malaysia"], horizontal=True
     )
-    uploaded_file = st.file_uploader(
-        "Upload NASA FIRMS-compatible CSV",
-        type=["csv"],
-        help="Accepts the project schema or common FIRMS fields such as acq_date.",
-    )
+    language_code = "ms" if language == "Bahasa Malaysia" else "en"
+    # Date and area pickers depend on the data, so they are filled in later
+    # but keep this position in the sidebar.
+    date_area_box = st.container()
 
-try:
-    data = load_data(uploaded_file.getvalue() if uploaded_file else None)
-except ValueError as error:
-    st.error(f"Data could not be loaded: {error}")
+    with st.expander("Filters"):
+        sources = st.multiselect(
+            "Satellites",
+            options=["MODIS", "VIIRS"],
+            default=["MODIS", "VIIRS"],
+        )
+        confidence = st.slider(
+            "Minimum confidence",
+            0,
+            100,
+            0,
+            help="Higher values show only stronger satellite signals.",
+        )
+        hide_false_alarms = st.checkbox(
+            "Hide likely false alarms",
+            value=True,
+            help=(
+                "Hides detections FIRMS marks as volcanoes, static industrial "
+                "sources or offshore, plus known heat sources and places "
+                "reported as false alarms."
+            ),
+        )
+
+    with st.expander("Advanced settings"):
+        max_minutes = st.slider(
+            "Match time window (minutes)",
+            5,
+            120,
+            30,
+            help="MODIS and VIIRS signals this close in time can be paired.",
+        )
+        max_distance_km = st.slider(
+            "Match distance (km)",
+            1.0,
+            25.0,
+            5.0,
+            step=0.5,
+            help=(
+                "Signals from different satellites within this distance may be "
+                "paired. Coverage circles on the signals map use this radius."
+            ),
+        )
+        event_link_km = st.slider(
+            "Group fire detections within (km)",
+            0.5,
+            5.0,
+            2.0,
+            step=0.5,
+            help="Nearby detections on consecutive days are treated as one fire.",
+        )
+        show_haze = st.checkbox(
+            "Show smoke direction",
+            value=True,
+            help="Uses the Open-Meteo wind forecast (demo mode uses an example wind).",
+        )
+
+
+def sign_out_button() -> None:
+    """Draw Sign out as the last item in the sidebar."""
+    with st.sidebar:
+        with st.container(key="signout"):
+            if st.button("Sign out", use_container_width=True):
+                st.session_state["authenticated"] = False
+                st.session_state.pop("username", None)
+                st.rerun()
+
+
+def stop_page() -> None:
+    """Stop the page early, but keep the Sign out button available."""
+    sign_out_button()
     st.stop()
+
+
+def firms_key_help() -> None:
+    """Setup steps for the person who runs the app (folded away)."""
+    with st.expander("For the project owner: how to switch on live data"):
+        st.markdown(
+            """
+            1. Request a free key at
+               <https://firms.modaps.eosdis.nasa.gov/api/map_key/>.
+            2. Add it to `.streamlit/secrets.toml` (or the app's **Secrets**
+               on Streamlit Cloud): `FIRMS_MAP_KEY = "your-key"`.
+            3. Restart the app.
+            """
+        )
+
+
+map_key = get_secret("FIRMS_MAP_KEY")
+try:
+    if data_source == "Live NASA FIRMS":
+        if not map_key:
+            st.info(
+                "**Live data isn't switched on yet.** Choose **Demo data** in "
+                "☰ Menu to explore the dashboard in the meantime."
+            )
+            firms_key_help()
+            stop_page()
+        data = load_live(map_key, live_area, live_days)
+    elif data_source == "Upload CSV":
+        if uploaded_file is None:
+            st.info(
+                "**Upload a CSV file** using **☰ Menu → Upload NASA "
+                "FIRMS-compatible CSV**. Files downloaded from NASA FIRMS work "
+                "as they are, or use the example below as a template."
+            )
+            st.download_button(
+                "Download example CSV",
+                data=DATA_PATH.read_bytes(),
+                file_name="firewatch-example.csv",
+                mime="text/csv",
+            )
+            stop_page()
+        data = load_data(uploaded_file.getvalue())
+    else:
+        data = load_data(None)
+except (ValueError, FirmsError) as error:
+    st.error(f"Data could not be loaded: {error}")
+    stop_page()
+
+feedback_store = FeedbackStore(
+    get_secret("FIREWATCH_FEEDBACK_PATH") or DEFAULT_FEEDBACK_PATH
+)
+reports = feedback_store.load()
+try:
+    known_sources = pd.concat(
+        [
+            frame
+            for frame in (load_known_sources(KNOWN_SOURCES_PATH), false_alarm_sites(reports))
+            if not frame.empty
+        ]
+        or [load_known_sources(KNOWN_SOURCES_PATH)],
+        ignore_index=True,
+    )
+except ValueError as error:
+    st.warning(f"Known heat sources could not be loaded: {error}")
+    known_sources = false_alarm_sites(reports)
+data = flag_false_alarms(data, known_sources)
+flagged = data[data["false_alarm_reason"] != ""]
+if hide_false_alarms:
+    data = data[data["false_alarm_reason"] == ""].copy()
 
 selected_date_range = None
 selected_regions = []
@@ -294,27 +737,22 @@ if not data.empty:
     min_date = observation_dates.min()
     max_date = observation_dates.max()
     region_options = sorted(data["region"].dropna().astype(str).unique())
-    with st.sidebar:
-        st.subheader("Date and region")
+    with date_area_box:
         selected_date_range = st.date_input(
-            "Observation date range",
+            "Dates",
             value=(min_date, max_date),
             min_value=min_date,
             max_value=max_date,
-            help="Choose the observation dates to include.",
         )
         selected_regions = st.multiselect(
-            "Which regions should we show?",
+            "Areas",
             options=region_options,
-            default=region_options,
-            help="Choose one or more regions.",
-        )
+            placeholder="All areas",
+            help="Leave empty to show every area.",
+        ) or region_options
 
-with st.sidebar:
-    with st.container(key="sidebar-signout"):
-        if st.button("Sign out", use_container_width=True):
-            st.session_state["authenticated"] = False
-            st.rerun()
+# Last sidebar element on a normal run.
+sign_out_button()
 
 if data.empty:
     filtered = data.copy()
@@ -351,37 +789,423 @@ except ValueError as error:
     st.error(f"Signals could not be matched: {error}")
     st.stop()
 
+is_demo = data_source == "Demo data"
+peat_layer = (
+    load_peat(str(DEMO_PEAT_PATH), True) if is_demo else load_peat(str(PEAT_PATH), False)
+)
+result["on_peat"] = (
+    points_on_peat(result["latitude"], result["longitude"], peat_layer)
+    if peat_layer.available and not result.empty
+    else False
+)
+events, result = build_events(result, EventConfig(link_distance_km=event_link_km))
+events = attach_feedback(score_events(events, peat_layer.available), reports)
+
+towns_at_risk = pd.DataFrame(columns=["event_id", "town", "distance_km", "hours_away"])
+plumes = pd.DataFrame()
+haze_note = ""
+if show_haze and not events.empty:
+    # Only the fires that matter most, so the map stays readable.
+    watched = events[events["attention_level"] == "High"].head(HAZE_EVENT_LIMIT)
+    if watched.empty:
+        watched = events[events["attention_level"] == "Medium"].head(3)
+    if is_demo:
+        winds = [DEMO_WIND] * len(watched)
+        haze_note = "Demo mode uses an example south-west monsoon wind (12 km/h)."
+    else:
+        try:
+            winds = load_winds(
+                tuple(zip(watched["latitude"].round(3), watched["longitude"].round(3)))
+            )
+            haze_note = "Average wind over the next 24 hours from the Open-Meteo forecast."
+        except (WeatherError, ValueError, KeyError) as error:
+            winds = []
+            haze_note = f"Smoke outlook unavailable: {error}"
+    towns_at_risk, plumes = haze_outlook(watched, winds)
+
 matched = int((result["match_status"] == "matched").sum())
 matched_pairs = matched // 2
 match_rate = (matched / len(result) * 100) if len(result) else 0
-overview_tab, analysis_tab, guide_tab = st.tabs(
-    ["Overview", "Explore signals", "Guide and methodology"]
+today_tab, events_tab, overview_tab, history_tab, guide_tab = st.tabs(
+    ["📍 Today", "🔥 Fire areas", "🛰️ Satellite signals", "📈 Past years", "📘 Guide"]
 )
 
-with overview_tab:
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Signals shown", len(result), help="Total heat signals after filters.")
-    col2.metric("Signals seen by both", matched_pairs)
-    col3.metric("Agreement rate", f"{match_rate:.0f}%")
-    col4.metric("Areas represented", result["region"].nunique())
-    col5.metric("Data quality", f"{quality_score(data)}%")
 
-    if result.empty:
-        st.warning("No signals match the current filters. Try widening the thresholds.")
-    elif match_rate >= 50:
-        st.success(
-            f"Insight: {match_rate:.0f}% of filtered signals participate in a "
-            "potential cross-satellite match."
+def summary_card_html(facts: dict, language: str, peat_available: bool) -> str:
+    """Daily summary as a visual card (stat tiles, fire-area cards, towns)."""
+    text = SUMMARY_TEXT[language]
+    date_text = html.escape(format_date(facts["day"], language))
+    tiles = "".join(
+        f'<div class="fw-tile"><div class="fw-num">{value}</div>'
+        f'<div class="fw-lbl">{label}</div></div>'
+        for value, label in (
+            (len(facts["active"]), text["active"]),
+            (facts["new"], text["new"]),
+            (facts["both"], text["both"]),
+        )
+    )
+
+    cards = []
+    for event in facts["top"].itertuples():
+        color = ATTENTION_COLORS.get(event.attention_level, "#8d99ae")
+        tips = text["tips"]
+        # Each tag is (label, explanation shown on hover).
+        tags = [
+            ("🛰️ " + text["both_tag"], tips["both"])
+            if event.both_satellites
+            else ("🛰️ " + text["one_tag"], tips["one"]),
+            (
+                "📅 " + (
+                    text["day"] if event.days_active == 1
+                    else text["days"].format(n=int(event.days_active))
+                ),
+                tips["days"],
+            ),
+        ]
+        if peat_available and event.on_peat:
+            tags.append(("🟤 " + text["peat"], tips["peat"]))
+        if event.spread_direction:
+            arrow = ARROWS[int(((event.spread_bearing % 360) + 22.5) // 45) % 8]
+            direction = compass(event.spread_bearing, language)
+            tags.append(
+                (f"{arrow} " + text["spread"].format(d=direction), tips["spread"])
+            )
+        cards.append(
+            f'<div class="fw-card" style="border-left-color:{color}">'
+            f'<div class="fw-card-top">'
+            f'<span class="fw-badge" style="background:{color}">'
+            f'{text["levels"].get(event.attention_level, "")}</span>'
+            f'<span class="fw-town">{html.escape(event.nearest_town)}</span>'
+            f'<span class="fw-dist">{text["near"]} · {event.town_distance_km:.0f} km</span>'
+            f'<span class="fw-score" title="{html.escape(text["legend_rows"][0][1])}">'
+            f'{event.attention_score}</span></div>'
+            f'<div class="fw-bar"><div style="width:{event.attention_score}%;'
+            f'background:{color}"></div></div>'
+            f'<div class="fw-tags">'
+            + "".join(
+                f'<span title="{html.escape(tip)}">{html.escape(label)}</span>'
+                for label, tip in tags
+            )
+            + "</div></div>"
+        )
+
+    legend_rows = "".join(
+        f"<tr><td class=\"fw-key\">{html.escape(key)}</td><td>{html.escape(meaning)}</td></tr>"
+        for key, meaning in text["legend_rows"]
+    )
+    legend = (
+        f'<details class="fw-legend"><summary>ⓘ {text["legend"]}</summary>'
+        f"<table>{legend_rows}</table></details>"
+    )
+
+    towns = ""
+    if len(facts["towns"]):
+        rows = "".join(
+            f"<tr><td>💨 {html.escape(row.town)}</td>"
+            f'<td class="fw-eta">{text["hours"].format(n=f"{row.hours_away:.0f}")}</td></tr>'
+            for row in facts["towns"].itertuples()
+        )
+        towns = (
+            f'<div class="fw-section">{text["towns"]}</div>'
+            f'<table class="fw-towns"><thead><tr><th>{text["town"]}</th>'
+            f'<th class="fw-eta">{text["eta"]}</th></tr></thead><tbody>{rows}</tbody></table>'
+        )
+
+    body = "".join(cards) if cards else f'<div class="fw-note">{text["none"]}</div>'
+    return (
+        '<div class="fw-summary">'
+        f'<div class="fw-head"><span class="fw-title">{text["title"]}</span>'
+        f'<span class="fw-date">{date_text} · MYT (UTC+08:00)</span></div>'
+        f'<div class="fw-tiles">{tiles}</div>'
+        f'<div class="fw-section">{text["top"]}</div>{body}{towns}{legend}'
+        f'<div class="fw-note">{text["note"]}</div></div>'
+    )
+
+
+def _local_time(series: pd.Series) -> pd.Series:
+    return (series + LOCAL_UTC_OFFSET).dt.strftime("%d %b %H:%M")
+
+
+def events_map(
+    events: pd.DataFrame, plumes: pd.DataFrame, peat_layer, height: int = 520
+) -> go.Figure:
+    figure = go.Figure()
+    for rings in peat_layer.polygons:
+        outer = rings[0]
+        figure.add_trace(
+            go.Scattermapbox(
+                lon=list(outer[:, 0]),
+                lat=list(outer[:, 1]),
+                mode="lines",
+                fill="toself",
+                fillcolor="rgba(121, 85, 61, 0.18)",
+                line={"color": "rgba(121, 85, 61, 0.6)", "width": 1},
+                hoverinfo="skip",
+                name="Peatland" + (" (illustrative)" if peat_layer.illustrative else ""),
+                legendgroup="peat",
+                showlegend=rings is peat_layer.polygons[0],
+            )
+        )
+    for plume in plumes.itertuples():
+        figure.add_trace(
+            go.Scattermapbox(
+                lon=[plume.longitude, plume.end_longitude],
+                lat=[plume.latitude, plume.end_latitude],
+                mode="lines+markers",
+                line={"color": "rgba(90, 90, 90, 0.7)", "width": 2},
+                marker={"size": [0, 9], "color": "rgba(90, 90, 90, 0.9)"},
+                hoverinfo="text",
+                text=f"{plume.event_id}: smoke drift in 24 h at {plume.wind_kmh:.0f} km/h",
+                name="Smoke drift (24 h)",
+                legendgroup="plume",
+                showlegend=plume.Index == 0,
+            )
+        )
+    for level, color in ATTENTION_COLORS.items():
+        group = events[events["attention_level"] == level]
+        if group.empty:
+            continue
+        figure.add_trace(
+            go.Scattermapbox(
+                lat=group["latitude"],
+                lon=group["longitude"],
+                mode="markers",
+                marker={
+                    "size": (10 + group["detections"].clip(upper=20) * 1.5).tolist(),
+                    "color": color,
+                    "opacity": 0.9,
+                },
+                name=f"{level} attention",
+                customdata=group[
+                    ["event_id", "nearest_town", "attention_score", "reasons",
+                     "days_active", "detections"]
+                ].to_numpy(),
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b> near %{customdata[1]}<br>"
+                    "Attention score: %{customdata[2]}<br>"
+                    "%{customdata[3]}<br>"
+                    "%{customdata[5]} detections over %{customdata[4]} day(s)"
+                    "<extra></extra>"
+                ),
+            )
+        )
+    figure.update_layout(
+        mapbox={
+            "style": "open-street-map",
+            "center": {
+                "lat": float(events["latitude"].mean()),
+                "lon": float(events["longitude"].mean()),
+            },
+            "zoom": 5.2,
+        },
+        height=height,
+        margin=dict(t=0, b=0, l=0, r=0),
+        legend={"orientation": "h", "y": -0.02},
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    return figure
+
+
+with today_tab:
+    notes = []
+    if is_demo:
+        notes.append("Demo mode: fictional fires, illustrative peat areas and an example wind.")
+    if len(flagged):
+        notes.append(
+            f"{len(flagged)} likely false alarm(s) "
+            + ("hidden." if hide_false_alarms else "shown.")
+        )
+    if notes:
+        st.caption(" ".join(notes))
+
+    has_events = not events.empty
+    kpis = [
+        ("🔥", len(events), "Fire areas",
+         "Nearby detections over several days grouped into one fire area."),
+        ("🚨", int((events["attention_level"] == "High").sum()) if has_events else 0,
+         "High attention", "Fire areas with an attention score of 70 or more."),
+        ("🟤", int(events["on_peat"].sum()) if peat_layer.available and has_events else "n/a",
+         "On peatland",
+         "Demo uses illustrative peat areas, not real boundaries."
+         if is_demo else "Needs a peat map (data/peatland.geojson)."),
+        ("💨", towns_at_risk["town"].nunique() if len(towns_at_risk) else 0,
+         "Towns in smoke path", "Towns downwind of high-attention fires in the next 24 hours."),
+    ]
+    st.markdown(
+        '<div class="fw-kpis">'
+        + "".join(
+            f'<div class="fw-kpi" title="{html.escape(tip)}">'
+            f'<div class="fw-kpi-icon">{icon}</div>'
+            f'<div><div class="fw-kpi-num">{value}</div>'
+            f'<div class="fw-kpi-lbl">{label}</div></div></div>'
+            for icon, value, label, tip in kpis
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    if not has_events:
+        st.info("No fire areas match the current filters.")
+    else:
+        summary_col, map_col = st.columns((2, 3), gap="large")
+        with summary_col:
+            st.markdown(
+                summary_card_html(
+                    summary_facts(events, towns_at_risk, peat_layer.available),
+                    language_code,
+                    peat_layer.available,
+                ),
+                unsafe_allow_html=True,
+            )
+        with map_col:
+            st.plotly_chart(
+                events_map(events, plumes, peat_layer, height=480),
+                use_container_width=True,
+            )
+            st.caption(
+                "Bigger circles mean more detections. Grey lines show where smoke "
+                "could drift in 24 hours. " + haze_note
+            )
+
+with events_tab:
+    if events.empty:
+        st.info(
+            "No fire areas match the current filters. Try widening the dates or "
+            "areas in ☰ Menu."
         )
     else:
-        st.info(
-            f"Insight: {match_rate:.0f}% of filtered signals participate in a "
-            "potential match; source coverage differs in this view."
+        st.caption(
+            "Each row is one fire area: detections close together on nearby "
+            "days. Most urgent first. Hover a column name for details."
+        )
+        level_text = events["attention_level"]
+        if language_code == "ms":
+            level_text = level_text.map(LEVEL_MS)
+        level_dots = events["attention_level"].map(
+            {"High": "🔴", "Medium": "🟠", "Low": "⚪"}
+        ).fillna("")
+        table = pd.DataFrame(
+            {
+                "ID": events["event_id"],
+                "Attention": level_dots + " " + level_text,
+                "Score": events["attention_score"],
+                "Near": events["nearest_town"],
+                "Days": events["days_active"],
+                "Both satellites": events["both_satellites"],
+                "On peat": events["on_peat"],
+                "Last seen": _local_time(events["last_seen"]),
+                "Ground report": events["ground_report"].replace("", "–"),
+            }
+        )
+        if not peat_layer.available:
+            table = table.drop(columns="On peat")
+        st.dataframe(
+            table,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Score": st.column_config.ProgressColumn(
+                    "Score", min_value=0, max_value=100, format="%d",
+                    help="0-100: satellite agreement, days burning, peatland, confidence.",
+                ),
+                "ID": st.column_config.TextColumn(
+                    help="Short name for the fire area, used when sending a report."
+                ),
+                "Days": st.column_config.NumberColumn(
+                    help="Number of different days heat was detected here."
+                ),
+                "Both satellites": st.column_config.CheckboxColumn(
+                    help="Ticked when MODIS and VIIRS both saw it (more likely a real fire)."
+                ),
+                "On peat": st.column_config.CheckboxColumn(
+                    help="Ticked when the fire is on peat soil (heavy haze)."
+                ),
+                "Ground report": st.column_config.TextColumn(
+                    help="Latest report from people on the ground, if any."
+                ),
+                "Last seen": st.column_config.TextColumn(
+                    help="Malaysia Time (MYT, UTC+08:00)."
+                ),
+            },
+        )
+        st.download_button(
+            "Download full table (CSV)",
+            data=events.to_csv(index=False).encode("utf-8"),
+            file_name="borneo-firewatch-fire-areas.csv",
+            mime="text/csv",
         )
 
-    st.subheader("Unified hotspot map")
+        if st.session_state.pop("report_saved", False):
+            st.success("Thank you. The report has been saved.")
+        with st.expander("📝 Report what is happening on the ground"):
+            st.caption(
+                "Confirm a fire or mark a false alarm. False-alarm places are "
+                "flagged automatically in future data."
+            )
+            with st.form("ground_report", clear_on_submit=True):
+                labels = {
+                    f"{row.event_id} · near {row.nearest_town} · {row.attention_level}": row
+                    for row in events.itertuples()
+                }
+                choice = st.selectbox("Fire area", list(labels))
+                verdict = st.radio(
+                    "What did you find?",
+                    list(VERDICTS),
+                    format_func=VERDICTS.get,
+                    horizontal=True,
+                )
+                note = st.text_input(
+                    "Note (optional)",
+                    placeholder="e.g. smallholder land clearing, gas flare",
+                )
+                if st.form_submit_button("Submit report", type="primary"):
+                    event = labels[choice]
+                    feedback_store.add(
+                        event.latitude,
+                        event.longitude,
+                        (event.last_seen + LOCAL_UTC_OFFSET).date().isoformat(),
+                        verdict,
+                        note,
+                        st.session_state.get("username", ""),
+                    )
+                    st.session_state["report_saved"] = True
+                    st.rerun()
+        if len(reports):
+            with st.expander(f"Previous reports ({len(reports)})"):
+                st.dataframe(
+                    reports.assign(verdict=reports["verdict"].map(VERDICTS)),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+with overview_tab:
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Signals shown", len(result), help="Total heat signals after filters.")
+    col2.metric(
+        "Pairs seen by both", matched_pairs,
+        help="MODIS and VIIRS signals close in time and place.",
+    )
+    col3.metric(
+        "Agreement rate", f"{match_rate:.0f}%",
+        help="Share of signals that are part of a MODIS/VIIRS pair.",
+    )
+    col4.metric(
+        "Data quality", f"{quality_score(data)}%",
+        help="Share of basic checks passed: valid times, coordinates, satellite "
+             "names and unique IDs.",
+    )
+
+    map_mode = st.radio(
+        "Map style",
+        ["Individual signals", "Signal concentration"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
     if result.empty:
-        st.warning("No signals are available for the map.")
+        st.info(
+            "No signals match the current filters. Try widening the dates, "
+            "areas or filters in ☰ Menu."
+        )
     else:
         map_data = build_map_features(result)
         map_data["observation_date"] = map_data["observed_at"].dt.strftime("%Y-%m-%d")
@@ -395,9 +1219,10 @@ with overview_tab:
                 lat="latitude",
                 lon="longitude",
                 z="confidence",
+                labels={"confidence": "Confidence"},
                 radius=28,
                 center=center,
-                zoom=4,
+                zoom=5,
                 height=520,
                 mapbox_style="open-street-map",
                 color_continuous_scale=[
@@ -493,7 +1318,7 @@ with overview_tab:
                 mapbox={
                     "style": "open-street-map",
                     "center": center,
-                    "zoom": 4,
+                    "zoom": 5,
                 },
                 height=520,
             )
@@ -513,7 +1338,7 @@ with overview_tab:
                 "does not represent burned area or fire intensity."
             )
 
-with analysis_tab:
+with overview_tab, st.expander("Charts and data table"):
     left, right = st.columns((1.25, 1))
     with left:
         st.subheader("Observation trends")
@@ -529,7 +1354,7 @@ with analysis_tab:
             y="observations",
             color="source",
             markers=True,
-            template="plotly_white",
+            color_discrete_map=MAP_SOURCE_COLORS,
         )
         chart.update_layout(legend_title_text="Satellite")
         st.plotly_chart(chart, use_container_width=True)
@@ -542,7 +1367,7 @@ with analysis_tab:
             y="confidence",
             color="source",
             points="all",
-            template="plotly_white",
+            color_discrete_map=MAP_SOURCE_COLORS,
         )
         confidence_chart.update_layout(
             showlegend=False, yaxis_title="Confidence score"
@@ -562,7 +1387,6 @@ with analysis_tab:
         color="source",
         barmode="group",
         text_auto=True,
-        template="plotly_white",
         color_discrete_map={"MODIS": "#e76f51", "VIIRS": "#2a9d8f"},
     )
     region_chart.update_layout(
@@ -617,7 +1441,100 @@ with analysis_tab:
             mime="text/csv",
         )
 
+with history_tab:
+    st.subheader("This season compared with past years")
+    st.caption(
+        "Counts MODIS detections over the same 10-day window each year. MODIS "
+        "is used because it has a consistent record since 2000, so years can "
+        "be compared fairly (2015 and 2019 were major haze years)."
+    )
+    if not map_key:
+        st.info(
+            "**Not available yet.** This comparison downloads past years from "
+            "NASA FIRMS, which needs live data to be switched on."
+        )
+        firms_key_help()
+    else:
+        history_area = st.selectbox("Area to compare", list(AREAS), key="history_area")
+        if st.button("Compare with past years") or st.session_state.get("history_loaded"):
+            st.session_state["history_loaded"] = True
+            today_local = (pd.Timestamp.now(tz="UTC") + LOCAL_UTC_OFFSET).date()
+            try:
+                history = load_history(map_key, history_area, today_local)
+            except (FirmsError, ValueError) as error:
+                st.error(f"History could not be loaded: {error}")
+                history = pd.DataFrame()
+            if not history.empty:
+                current = history[history["current"]].iloc[0]
+                past = history[~history["current"]]
+                average = past["detections"].mean() if len(past) else 0
+                change = (
+                    (current["detections"] - average) / average * 100 if average else 0
+                )
+                cols = st.columns(3)
+                cols[0].metric(
+                    f"{current['year']} ({current['window']})", int(current["detections"])
+                )
+                cols[1].metric("Average of past years", f"{average:.0f}")
+                cols[2].metric("Difference from average", f"{change:+.0f}%")
+                history_chart = px.bar(
+                    history,
+                    x="year",
+                    y="detections",
+                    color=history["current"].map({True: "This year", False: "Past years"}),
+                    color_discrete_map={"This year": "#e76f51", "Past years": "#2a9d8f"},
+                    hover_data={"window": True},
+                )
+                history_chart.add_hline(
+                    y=average,
+                    line_dash="dot",
+                    annotation_text="Past-year average",
+                    line_color="#555",
+                )
+                history_chart.update_layout(
+                    xaxis_title="Year",
+                    yaxis_title="MODIS detections",
+                    legend_title_text="",
+                    xaxis={"dtick": 1},
+                )
+                st.plotly_chart(history_chart, use_container_width=True)
+
 with guide_tab:
+    st.subheader("How the attention score works")
+    st.markdown(
+        """
+        Each fire area gets a score from 0 to 100:
+
+        | Factor | Points | Why it matters |
+        |---|---|---|
+        | Seen by both MODIS and VIIRS | 35 | Two sensors agreeing makes a real fire likelier |
+        | Burning for several days (full at 3) | 25 | Lasting fires are rarely false alarms |
+        | On peatland | 25 | Peat fires smoulder for weeks and cause most of Borneo's haze |
+        | Satellite confidence | 15 | The satellites' own confidence in the detection |
+
+        **High** is 70 or more, **Medium** 40 to 69. When no peat layer is
+        loaded, the peat points are left out and the other factors are scaled
+        up to 100.
+
+        **Smoke direction** is a straight-line estimate using the average
+        10 m wind over the next 24 hours (Open-Meteo forecast). It is not an
+        air-quality forecast; check official APIMS readings for actual air
+        quality.
+        """
+    )
+    st.subheader("Data sources")
+    st.markdown(
+        """
+        - **Hotspots:** NASA FIRMS MODIS and VIIRS (S-NPP, NOAA-20, NOAA-21)
+          near-real-time and archive data.
+        - **Wind:** Open-Meteo forecast API.
+        - **Peatland:** add a peatland GeoJSON as `data/peatland.geojson`
+          (for example a Borneo extract of a published peatland map). The
+          demo uses illustrative areas only.
+        - **Known heat sources:** `data/known_heat_sources.csv`, plus places
+          reported as false alarms in the Fire areas tab.
+        """
+    )
     st.subheader("How should this result be interpreted?")
     st.markdown(
         """
@@ -634,8 +1551,8 @@ with guide_tab:
     st.subheader("About the project")
     st.write(
         "Borneo FireWatch is an exploratory FORGEX6 prototype for Sarawak and "
-        "Borneo. It uses demonstration data until official NASA FIRMS access "
-        "and challenge requirements are confirmed."
+        "Borneo. It runs on fictional demonstration data by default and can "
+        "load live NASA FIRMS data when a FIRMS MAP_KEY is configured."
     )
     st.subheader("Data safety note")
     st.info(

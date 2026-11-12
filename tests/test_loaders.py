@@ -14,7 +14,7 @@ def csv(text: str) -> io.StringIO:
 def test_demo_data_loads_with_numeric_confidence():
     observations = load_observations("data/sample_hotspots.csv")
 
-    assert len(observations) == 8
+    assert len(observations) == 21
     assert pd.api.types.is_numeric_dtype(observations["confidence"])
     assert quality_score(observations) == 100
 

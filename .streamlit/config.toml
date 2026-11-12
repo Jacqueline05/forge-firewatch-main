@@ -1,0 +1,9 @@
+# FireWatch brand theme (dark by default). People can still switch to the
+# light theme from the app's menu or Streamlit's own Settings.
+[theme]
+base = "dark"
+primaryColor = "#2a9d8f"
+backgroundColor = "#0b1517"
+secondaryBackgroundColor = "#132429"
+textColor = "#e6f0ef"
+font = "sans serif"

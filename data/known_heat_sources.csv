@@ -1,0 +1,8 @@
+# Known heat sources that are NOT vegetation fires (gas flares, refineries,
+# power plants, factories, offshore platforms). Detections within radius_km
+# are flagged as likely false alarms and can be hidden in the dashboard.
+#
+# Add rows only for locations the team has verified, e.g. from local
+# knowledge or from repeated "false alarm" reports in the dashboard.
+# kind examples: Gas flare, Industrial, Power plant, Offshore platform
+name,latitude,longitude,radius_km,kind

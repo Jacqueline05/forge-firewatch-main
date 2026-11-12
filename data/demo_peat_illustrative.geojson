@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "name": "Illustrative peat areas (demo only, not real peat boundaries)",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "Illustrative coastal peat near Mukah"},
+      "geometry": {"type": "Polygon", "coordinates": [[
+        [111.95, 2.55], [112.45, 2.55], [112.45, 2.95], [111.95, 2.95], [111.95, 2.55]
+      ]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Illustrative peat in the lower Rajang delta"},
+      "geometry": {"type": "Polygon", "coordinates": [[
+        [111.25, 2.10], [111.65, 2.10], [111.65, 2.55], [111.25, 2.55], [111.25, 2.10]
+      ]]}
+    }
+  ]
+}
