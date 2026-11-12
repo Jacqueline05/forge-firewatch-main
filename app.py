@@ -526,7 +526,6 @@ def login_screen() -> bool:
                 st.rerun()
             else:
                 st.error("Incorrect username or password. Please try again.")
-        st.caption("Tip: press Enter to sign in.")
     return False
 
 
@@ -644,11 +643,11 @@ with st.sidebar:
         )
         hide_false_alarms = st.checkbox(
             "Hide likely false alarms",
-            value=True,
+            value=False,
             help=(
-                "Hides detections FIRMS marks as volcanoes, static industrial "
+                "Filters detections FIRMS marks as volcanoes, static industrial "
                 "sources or offshore, plus known heat sources and places "
-                "reported as false alarms."
+                "reported as false alarms. Detections and reports are retained."
             ),
             disabled=locked,
             key="hide_false_alarms",

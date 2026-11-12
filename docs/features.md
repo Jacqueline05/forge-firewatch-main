@@ -34,7 +34,9 @@ Always visible:
 Folded away:
 
 - **Filters:** satellites (MODIS, VIIRS), minimum confidence, and "Hide
-  likely false alarms" (on by default).
+  likely false alarms" (off by default). Turning it on filters flagged
+  detections from the current analysis; it does not delete the source data
+  or reports.
 - **Advanced settings:** match time window (5-120 min), match distance
   (1-25 km), fire grouping distance (0.5-5 km), and smoke direction on/off.
 
@@ -75,7 +77,8 @@ every section and data mode.
   and distance, detections per satellite and the reasons behind each score.
 - **Report what is happening on the ground** (folded form): choose a fire
   area, mark it Confirmed fire / False alarm / Not sure, and add a note. The
-  signed-in username is recorded. Previous reports are listed below.
+  signed-in username is recorded. Reports are kept as records and listed
+  below; false-alarm reports do not delete detections.
 
 ## 🛰️ Satellite signals
 
