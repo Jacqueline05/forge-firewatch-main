@@ -2,7 +2,18 @@ from datetime import date
 
 import pandas as pd
 
-from src.firewatch.filters import filter_observations
+from src.firewatch.filters import filter_bbox, filter_observations
+
+
+def test_demo_area_bbox_supports_world_and_borneo():
+    observations = pd.read_csv("data/sample_hotspots.csv")
+
+    worldwide = filter_bbox(observations, (-180, -90, 180, 90))
+    borneo = filter_bbox(observations, (108.5, -4.5, 119.5, 7.5))
+
+    assert len(worldwide) == len(observations)
+    assert len(borneo) == 21
+    assert set(borneo["region"]).issubset(set(observations["region"]))
 
 
 def test_filter_observations_applies_inclusive_dates_and_other_filters():

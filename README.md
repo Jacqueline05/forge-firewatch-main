@@ -1,11 +1,13 @@
-# FORGEX6 — Borneo FireWatch
+# FORGEX6 — Forge Firewatch
 
 > Six Minds. One Mission. A Clearer View of Earth.
 
-Borneo FireWatch is an exploratory data platform for comparing MODIS and VIIRS
-thermal-anomaly observations across Sarawak and Borneo. It focuses on
-transparent harmonization rather than treating every satellite hotspot as a
-confirmed fire.
+Forge Firewatch is an exploratory data platform for comparing MODIS and VIIRS
+thermal-anomaly observations around the world. Live NASA FIRMS queries support
+worldwide coverage and custom geographic bounding boxes. Fictional
+demonstration hotspots and illustrative peat shapes cover Borneo and several
+other regions. The system focuses on transparent harmonization rather than
+treating every satellite hotspot as a confirmed fire.
 
 ## Project status
 
@@ -85,12 +87,12 @@ flake8 app.py src tests
 
 ## What the MVP demonstrates
 
-**Fire intelligence for Sarawak (Today and Fire events tabs)**
+**Fire intelligence for selected locations**
 
 - **Fire areas:** groups detections close in place and time into one fire,
   with how many days it has burned and which direction it is spreading
-- **Peatland flag:** marks fires on peat, the main source of Borneo's haze
-  (needs a peat layer, see below)
+- **Peatland flag:** marks fires on peat (needs a peat layer for your study
+  area, see below)
 - **Attention score (0-100):** combines satellite agreement, persistence,
   peatland and confidence, with a plain explanation for each fire
 - **Smoke direction outlook:** lists towns downwind of active fires in the
@@ -102,8 +104,11 @@ flake8 app.py src tests
 - **False-alarm filter:** hides FIRMS volcano/industrial/offshore detections,
   known heat sources, and reported false alarms
 
-**Live data:** latest MODIS and VIIRS (S-NPP, NOAA-20, NOAA-21) detections
-from NASA FIRMS for Sarawak or all of Borneo.
+**Data area:** Demo data defaults to **World** and includes fictional fires
+from several regions; **Borneo** is available as a focused demo area. Live
+NASA FIRMS defaults to worldwide coverage, with Sarawak, Borneo, and custom
+bounding boxes also available. Global queries default to one day to keep
+downloads manageable.
 
 **Satellite comparison (Signals map and Explore signals tabs)**
 
@@ -118,7 +123,7 @@ from NASA FIRMS for Sarawak or all of Borneo.
 | What | How to enable |
 |---|---|
 | Live NASA FIRMS data | Request a free key at <https://firms.modaps.eosdis.nasa.gov/api/map_key/> and set `FIRMS_MAP_KEY` in `.streamlit/secrets.toml` |
-| Peatland layer for live data | Save a peatland map for Borneo as `data/peatland.geojson` (WGS84 polygons). The demo uses illustrative areas in `data/demo_peat_illustrative.geojson`, which are **not** real peat boundaries |
+| Peatland layer for live data | Save a peatland map for your study area as `data/peatland.geojson` (WGS84 polygons). The demo uses illustrative areas in several regions in `data/demo_peat_illustrative.geojson`, which are **not** real peat boundaries |
 | Known heat sources | Add verified gas flares, factories, etc. to `data/known_heat_sources.csv` |
 | Where ground reports are saved | Defaults to `data/feedback.csv` (not committed). On Streamlit Cloud the file resets when the app restarts; set `FIREWATCH_FEEDBACK_PATH` to persistent storage to keep reports |
 
@@ -173,7 +178,7 @@ flake8 app.py src tests
 │   ├── feedback.py                     # Ground reports
 │   ├── false_alarms.py                 # Known heat sources, FIRMS type
 │   ├── firms.py                        # NASA FIRMS live data API
-│   ├── places.py                       # Towns and geography helpers
+│   ├── places.py                       # Settlement labels and geography helpers
 │   ├── map_features.py                 # Map pairs and coverage circles
 │   └── auth.py                         # Team login
 ├── tests/                              # Unit tests (pytest)
@@ -200,7 +205,7 @@ The dashboard explicitly distinguishes:
 
 ## Next steps
 
-1. Load a real peatland map for Borneo as `data/peatland.geojson`.
+1. Load a real peatland map for the study area as `data/peatland.geojson`.
 2. Fill `data/known_heat_sources.csv` with verified industrial heat sources.
 3. Choose persistent storage for ground reports before wider use.
 4. Confirm the official NASA Space Apps 2026 challenge requirements.
@@ -209,10 +214,13 @@ The dashboard explicitly distinguishes:
 
 Satellite hotspots indicate detected thermal anomalies. They do not, by
 themselves, confirm a fire's cause, establish burned area, or measure haze
-concentration. Borneo FireWatch is an exploratory information tool and is not
+concentration. Forge Firewatch is an exploratory information tool and is not
 a replacement for official fire verification, emergency response, or
-air-quality monitoring. The smoke direction outlook is a rough straight-line
-estimate from the average wind, not an air-quality forecast.
+air-quality monitoring. Times are displayed in UTC. The smoke outlook uses a
+representative set of cities worldwide; each fire is labeled with the
+nearest listed city and its distance, even when that city is far away. The smoke direction outlook is a
+rough straight-line estimate from the average wind, not an air-quality
+forecast.
 
 ## Team
 

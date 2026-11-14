@@ -1,9 +1,9 @@
-# Borneo FireWatch features
+# Forge Firewatch features
 
 This document describes every feature in the current MVP. The dashboard runs
-on fictional demonstration data by default and can load live NASA FIRMS data
-when a `FIRMS_MAP_KEY` is configured. All times are Malaysia Time (MYT,
-UTC+08:00).
+on fictional demonstration data from several world regions by default and can
+load live NASA FIRMS data worldwide, or for a selected region or bounding box,
+when a `FIRMS_MAP_KEY` is configured. Times are displayed in UTC.
 
 ## Dashboard layout
 
@@ -26,8 +26,11 @@ UTC+08:00).
 
 Always visible:
 
-- **Data source:** Demo data, Live NASA FIRMS (choose Sarawak or Borneo and
-  1-10 days), or Upload CSV.
+- **Data source:** Demo data, Live NASA FIRMS, or Upload CSV. Demo data
+  defaults to World and also offers Borneo; live data offers World, Sarawak,
+  Borneo, or a custom bounding box (1-5 days). World live queries start with
+  one day of data.
+  Custom boxes use west, south, east and north decimal-degree coordinates.
 - **Dates:** observation date range.
 - **Areas:** pick towns/regions; leave empty for all areas.
 
@@ -53,7 +56,7 @@ every section and data mode.
 - **Headline numbers:** fire areas, high-attention areas, areas on peatland,
   and towns in the smoke path.
 - **Situation summary card** for the latest day:
-  - Date with MYT (UTC+08:00).
+  - Date with UTC.
   - Tiles: active today, new today, seen by both satellites.
   - **Top fire area cards** with a coloured attention badge (HIGH / MEDIUM /
     LOW), nearest town and distance, score with a score bar, and tags:
@@ -71,7 +74,7 @@ every section and data mode.
 ## 🔥 Fire areas
 
 - Table of all fire areas: area ID, attention level, score bar, nearest town,
-  days detected, seen by both satellites, on peat, last seen (MYT) and ground
+  days detected, seen by both satellites, on peat, last seen (UTC) and ground
   report. Column headers have explanations on hover.
 - **Download full table (CSV)** with every field, including spread direction
   and distance, detections per satellite and the reasons behind each score.
@@ -94,8 +97,10 @@ every section and data mode.
 
 ## 🎮 Haze Patrol
 
-A 60-second arcade game on a stylised map of Sarawak, built on the same ideas
-as the dashboard. Works with mouse or touch, on desktop and phones.
+A 60-second practice game with selectable Asia, Europe, and America scenarios.
+Each choice loads its own illustrative map and fictional fires. It is separate
+from the dashboard data area and works with mouse or touch, on desktop and
+phones.
 
 - **Tap fires** to drop water; small fires give bonus points and quick
   saves build a combo (up to x3).
@@ -197,8 +202,12 @@ as the dashboard. Works with mouse or touch, on desktop and phones.
 
 - Demo records are fictional. No real peatland map or known heat source list
   is bundled yet.
-- Live NASA FIRMS loading is covered by tests with simulated responses but
-  has not yet been run with a real `FIRMS_MAP_KEY`.
+- Live NASA FIRMS loading, including custom bounding boxes, is covered by
+  tests with simulated responses but has not yet been run with a real
+  `FIRMS_MAP_KEY`.
+- The smoke outlook checks a representative city list spanning multiple
+  regions. It is not a complete global gazetteer; remote fires are labeled
+  with the nearest listed town and its distance, which may be far away.
 - The smoke outlook ignores terrain, rain and plume height; it is a screening
   aid, not an air-quality forecast.
 - Ground reports are stored in a CSV file, which resets on Streamlit Cloud

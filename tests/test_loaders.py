@@ -14,7 +14,15 @@ def csv(text: str) -> io.StringIO:
 def test_demo_data_loads_with_numeric_confidence():
     observations = load_observations("data/sample_hotspots.csv")
 
-    assert len(observations) == 21
+    assert len(observations) == 45
+    assert {
+        "Amazon Basin",
+        "California",
+        "Central India",
+        "Congo Basin",
+        "Mediterranean",
+        "Northern Australia",
+    }.issubset(set(observations["region"]))
     assert pd.api.types.is_numeric_dtype(observations["confidence"])
     assert quality_score(observations) == 100
 
@@ -33,6 +41,7 @@ latitude,longitude,acq_date,acq_time,satellite,instrument,confidence
 
     assert list(observations["confidence"]) == [90, 60, 30]
     assert list(observations["source"]) == ["VIIRS"] * 3
+    assert set(observations["region"]) == {"Unknown area"}
     assert observations["observed_at"].iloc[0] == pd.Timestamp(
         "2026-09-01 01:52", tz="UTC"
     )
@@ -41,7 +50,7 @@ latitude,longitude,acq_date,acq_time,satellite,instrument,confidence
         observations,
         pd.Timestamp("2026-09-01").date(),
         pd.Timestamp("2026-09-01").date(),
-        ["Borneo"],
+        ["Unknown area"],
         ["VIIRS"],
         50,
     )

@@ -33,6 +33,14 @@ def test_town_downwind_is_at_risk_and_upwind_town_is_not():
     assert len(plumes) == 1
 
 
+def test_global_city_downwind_is_at_risk():
+    events = pd.DataFrame([event("E1", 40.7, -75.5)])
+
+    towns, _ = haze_outlook(events, [Wind(12, 90)])
+
+    assert "New York" in towns["town"].tolist()
+
+
 def test_calm_wind_gives_no_outlook():
     events = pd.DataFrame([event("E1", 2.805, 112.205)])
 

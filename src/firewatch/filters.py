@@ -3,6 +3,17 @@ from datetime import date
 import pandas as pd
 
 
+def filter_bbox(
+    observations: pd.DataFrame, bbox: tuple[float, float, float, float]
+) -> pd.DataFrame:
+    west, south, east, north = bbox
+    in_bbox = (
+        observations["longitude"].between(west, east)
+        & observations["latitude"].between(south, north)
+    )
+    return observations[in_bbox].copy()
+
+
 def filter_observations(
     observations: pd.DataFrame,
     start_date: date,

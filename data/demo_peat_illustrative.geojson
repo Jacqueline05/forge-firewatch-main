@@ -1,6 +1,6 @@
 {
   "type": "FeatureCollection",
-  "name": "Illustrative peat areas (demo only, not real peat boundaries)",
+  "name": "Illustrative peat areas worldwide (demo only, not real peat boundaries)",
   "features": [
     {
       "type": "Feature",
@@ -14,6 +14,20 @@
       "properties": {"name": "Illustrative peat in the lower Rajang delta"},
       "geometry": {"type": "Polygon", "coordinates": [[
         [111.25, 2.10], [111.65, 2.10], [111.65, 2.55], [111.25, 2.55], [111.25, 2.10]
+      ]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Illustrative peat near the Amazon sample area"},
+      "geometry": {"type": "Polygon", "coordinates": [[
+        [-62.4, -3.7], [-62.0, -3.7], [-62.0, -3.3], [-62.4, -3.3], [-62.4, -3.7]
+      ]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Illustrative peat near the Congo Basin sample area"},
+      "geometry": {"type": "Polygon", "coordinates": [[
+        [24.8, 0.3], [25.2, 0.3], [25.2, 0.7], [24.8, 0.7], [24.8, 0.3]
       ]]}
     }
   ]

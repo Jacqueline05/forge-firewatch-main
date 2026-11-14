@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .places import LOCAL_UTC_OFFSET, haversine_km
+from .places import DISPLAY_UTC_OFFSET, haversine_km
 
 
 FEEDBACK_COLUMNS = [
@@ -80,8 +80,8 @@ def attach_feedback(events: pd.DataFrame, reports: pd.DataFrame) -> pd.DataFrame
     report_dates = pd.to_datetime(reports["event_date"]).dt.date
     window = timedelta(days=MATCH_DAYS)
     for position, event in events.iterrows():
-        first = (event["first_seen"] + LOCAL_UTC_OFFSET).date() - window
-        last = (event["last_seen"] + LOCAL_UTC_OFFSET).date() + window
+        first = (event["first_seen"] + DISPLAY_UTC_OFFSET).date() - window
+        last = (event["last_seen"] + DISPLAY_UTC_OFFSET).date() + window
         near = haversine_km(
             event["latitude"], event["longitude"],
             reports["latitude"].to_numpy(dtype=float),

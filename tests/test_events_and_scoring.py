@@ -54,10 +54,10 @@ def test_detections_too_far_apart_in_time_are_separate_events():
     assert len(events) == 2
 
 
-def test_event_days_use_sarawak_time():
-    # 20:00 UTC on 1 Sept is 04:00 on 2 Sept in Sarawak.
+def test_event_days_use_utc():
+    # UTC provides a consistent date across custom geographic areas.
     times = pd.to_datetime(pd.Series(["2026-09-01T20:00:00Z"]), utc=True)
-    assert str(local_date(times).iloc[0]) == "2026-09-02"
+    assert str(local_date(times).iloc[0]) == "2026-09-01"
 
 
 def test_empty_input_gives_empty_events():
@@ -123,10 +123,14 @@ def test_missing_peat_file_means_layer_not_available(tmp_path):
     assert not points_on_peat([1.0], [1.0], PeatLayer()).any()
 
 
-def test_demo_peat_layer_covers_demo_mukah_fire():
+def test_demo_peat_layer_covers_demo_fires_in_multiple_regions():
     layer = load_peat_layer("data/demo_peat_illustrative.geojson", illustrative=True)
 
-    assert points_on_peat([2.80], [112.20], layer).tolist() == [True]
+    assert points_on_peat(
+        [2.80, -3.50, 0.50],
+        [112.20, -62.20, 25.00],
+        layer,
+    ).tolist() == [True, True, True]
     assert points_on_peat([1.55], [110.36], layer).tolist() == [False]
 
 
@@ -145,3 +149,21 @@ def test_nearest_town():
     assert town == "Kuching"
     assert distance < 2
     assert np.isfinite(distance)
+
+
+def test_nearest_town_uses_global_city_reference():
+    location, distance = nearest_town(40.7128, -74.0060)
+
+    assert location == "New York"
+    assert distance < 1
+
+
+def test_nearest_town_names_a_place_even_when_far_away():
+    location, distance = nearest_town(-14.60, 132.40)
+
+    assert location == "Katherine"
+    assert distance < 50
+
+    remote, remote_distance = nearest_town(0, -30)
+    assert "," not in remote
+    assert remote_distance > 1000

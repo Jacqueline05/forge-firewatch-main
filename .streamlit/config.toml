@@ -1,4 +1,4 @@
-# FireWatch brand theme (dark by default). People can still switch to the
+# Forge Firewatch theme (dark by default). People can still switch to the
 # light theme from the app's menu or Streamlit's own Settings.
 [theme]
 base = "dark"

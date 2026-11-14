@@ -1,4 +1,4 @@
-name: Borneo FireWatch CI
+name: Forge Firewatch CI
 
 on:
   push:

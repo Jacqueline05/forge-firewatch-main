@@ -1,4 +1,4 @@
-# Hotspot data contract
+# Forge Firewatch hotspot data contract
 
 The harmonization engine expects one row per satellite observation.
 
@@ -11,7 +11,7 @@ The harmonization engine expects one row per satellite observation.
 | `longitude` | decimal | Longitude from -180 to 180 |
 | `confidence` | integer | Source confidence score from 0 to 100 |
 | `brightness` | decimal | Optional thermal brightness value |
-| `region` | string | Human-readable study area |
+| `region` | string | Human-readable study area (or `Unknown area` if not supplied) |
 
 ## Matching rule
 

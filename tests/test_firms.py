@@ -38,14 +38,30 @@ def fake_fetch(responses):
 
 
 def test_area_url_uses_bbox_day_range_and_start_date():
-    url = area_url("KEY", "MODIS_SP", (109.5, 0.8, 115.8, 5.1), 10, date(2019, 9, 1))
+    url = area_url("KEY", "MODIS_SP", (109.5, 0.8, 115.8, 5.1), 5, date(2019, 9, 1))
 
-    assert url.endswith("/KEY/MODIS_SP/109.5,0.8,115.8,5.1/10/2019-09-01")
+    assert url.endswith("/KEY/MODIS_SP/109.5,0.8,115.8,5.1/5/2019-09-01")
 
 
-def test_area_url_rejects_more_than_ten_days():
+def test_area_url_accepts_world_area():
+    url = area_url("KEY", "MODIS_NRT", "world", 1)
+
+    assert url.endswith("/KEY/MODIS_NRT/world/1")
+
+
+def test_area_url_accepts_global_coordinates_and_rejects_invalid_bounds():
+    url = area_url("KEY", "MODIS_NRT", (-123.5, 35.0, -122.0, 37.0), 2)
+
+    assert url.endswith("/KEY/MODIS_NRT/-123.5,35,-122,37/2")
+    with pytest.raises(ValueError, match="longitudes"):
+        area_url("KEY", "MODIS_NRT", (10, 0, 200, 1), 2)
+    with pytest.raises(ValueError, match="latitudes"):
+        area_url("KEY", "MODIS_NRT", (0, -91, 1, 1), 2)
+
+
+def test_area_url_rejects_more_than_five_days():
     with pytest.raises(ValueError):
-        area_url("KEY", "MODIS_NRT", (0, 0, 1, 1), 11)
+        area_url("KEY", "MODIS_NRT", (0, 0, 1, 1), 6)
 
 
 def test_live_observations_combine_products_with_unique_ids():
@@ -59,6 +75,24 @@ def test_live_observations_combine_products_with_unique_ids():
     assert sorted(observations["source"]) == ["MODIS", "VIIRS", "VIIRS"]
     assert sorted(observations["confidence"]) == [60, 78, 90]
     assert set(observations["region"]) == {"Mukah", "Miri"}
+
+
+def test_live_observations_accept_custom_bbox():
+    fetch = fake_fetch({})
+
+    fetch_live_observations("KEY", (-123.5, 35.0, -122.0, 37.0), 2, fetch=fetch)
+
+    assert len(fetch.calls) == 4
+    assert all("/-123.5,35,-122,37/2" in url for url in fetch.calls)
+
+
+def test_live_observations_accept_world_area():
+    fetch = fake_fetch({})
+
+    fetch_live_observations("KEY", "Worldwide", 1, fetch=fetch)
+
+    assert len(fetch.calls) == 4
+    assert all("/world/1" in url for url in fetch.calls)
 
 
 def test_invalid_key_gives_readable_error():

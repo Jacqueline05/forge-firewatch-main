@@ -50,6 +50,14 @@
   }
   .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
   .secondary { background: rgba(255, 255, 255, .1); box-shadow: none; border: 1px solid rgba(255, 255, 255, .22); }
+  .areas-label { font-weight: 700; font-size: 15px; margin: 0 0 8px; }
+  .areas { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .area {
+    font-size: 15px; padding: 9px 18px; box-shadow: none;
+    background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .25);
+  }
+  .area.selected { background: linear-gradient(135deg, #2a9d8f, #0b6e69); border-color: #7fd1c7; }
+  button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
   .hidden { display: none; }
 </style>
 </head>
@@ -75,7 +83,9 @@
       <h1>🚒 <span id="t-title"></span></h1>
       <div class="sub" id="t-sub"></div>
       <ul class="rules" id="t-rules"></ul>
-      <button id="startBtn"></button>
+      <div class="areas-label" id="t-chooseArea"></div>
+      <div class="areas" id="areas"></div>
+      <button id="startBtn" disabled></button>
     </div>
   </div>
   <div id="end" class="overlay hidden">
@@ -85,31 +95,86 @@
       <div class="stats" id="stats"></div>
       <div class="rank" id="rank"></div>
       <div class="fact" id="fact"></div>
-      <button id="againBtn"></button>
+      <div class="row">
+        <button id="againBtn"></button>
+        <button id="changeAreaBtn" class="secondary"></button>
+      </div>
     </div>
   </div>
 </div>
 <script>
 (() => {
   const T = __TEXT__;
+  const REGION = __AREA__;
   const EMOJI_FONT = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
 
-  // ---------- Geography (simplified Sarawak, lon/lat) ----------
-  const BOUNDS = { w: 109.3, e: 115.8, s: 0.6, n: 5.25 };
-  const LAND = [
-    [109.65, 1.95], [110.3, 1.75], [110.9, 1.62], [111.3, 2.1], [111.5, 2.6], [112.1, 2.9],
-    [112.9, 3.12], [113.4, 3.6], [113.9, 4.3], [114.4, 4.6], [115.0, 4.95], [115.45, 4.65],
-    [115.4, 4.0], [115.0, 3.2], [114.5, 2.4], [113.6, 1.4], [112.5, 1.1], [111.4, 1.05],
-    [110.6, 0.9], [109.9, 1.2], [109.6, 1.5],
-  ];
-  const TOWNS = [
-    { name: "Kuching", lon: 110.36, lat: 1.55 }, { name: "Sibu", lon: 111.83, lat: 2.29 },
-    { name: "Mukah", lon: 112.09, lat: 2.9 }, { name: "Bintulu", lon: 113.03, lat: 3.17 },
-    { name: "Miri", lon: 113.99, lat: 4.4 },
-  ];
-  // Peat swamps: [lon, lat, radiusLon, radiusLat]
-  const PEAT = [[112.3, 2.62, 0.42, 0.2], [111.42, 2.25, 0.25, 0.22], [113.55, 3.72, 0.3, 0.16]];
-  const FLARE_SITES = [[112.75, 3.0], [114.3, 4.33], [111.15, 1.95]];
+  // The maps are illustrative practice scenarios, not live fire data.
+  const REGIONS = {
+    Asia: {
+      bounds: { w: 60, e: 150, s: -10, n: 72 },
+      land: [
+        [60, 38], [65, 50], [76, 58], [88, 67], [104, 72], [122, 68],
+        [138, 58], [148, 48], [143, 37], [134, 27], [128, 16], [117, 5],
+        [105, 0], [96, 7], [87, 19], [77, 25], [68, 29],
+      ],
+      towns: [
+        { name: "Delhi", lon: 77.21, lat: 28.61 },
+        { name: "Bangkok", lon: 100.50, lat: 13.76 },
+        { name: "Hanoi", lon: 105.85, lat: 21.03 },
+        { name: "Manila", lon: 120.98, lat: 14.60 },
+        { name: "Beijing", lon: 116.41, lat: 39.90 },
+        { name: "Tokyo", lon: 139.65, lat: 35.68 },
+      ],
+      peat: [[103, 3, 5, 4], [113, 22, 4, 5], [88, 10, 5, 4]],
+      flares: [[99, 20], [128, 32], [109, 8]],
+    },
+    Europe: {
+      bounds: { w: -12, e: 45, s: 34, n: 72 },
+      land: [
+        [-11, 36], [-9, 44], [-4, 49], [3, 52], [7, 58], [14, 65],
+        [24, 71], [33, 66], [42, 58], [39, 50], [31, 45], [25, 40],
+        [15, 36], [4, 35], [-3, 36],
+      ],
+      towns: [
+        { name: "Madrid", lon: -3.70, lat: 40.42 },
+        { name: "London", lon: -0.13, lat: 51.51 },
+        { name: "Paris", lon: 2.35, lat: 48.86 },
+        { name: "Berlin", lon: 13.40, lat: 52.52 },
+        { name: "Rome", lon: 12.50, lat: 41.90 },
+        { name: "Athens", lon: 23.73, lat: 37.98 },
+      ],
+      peat: [[25, 64, 4, 3], [28, 54, 4, 3], [-5, 40, 4, 3]],
+      flares: [[20, 51], [5, 43], [32, 60]],
+    },
+    America: {
+      bounds: { w: -130, e: -30, s: -56, n: 72 },
+      land: [
+        [-128, 50], [-130, 60], [-119, 68], [-104, 72], [-91, 68],
+        [-82, 60], [-70, 54], [-58, 49], [-53, 43], [-63, 38], [-74, 31],
+        [-79, 24], [-89, 19], [-96, 14], [-82, 9], [-77, 3], [-75, -9],
+        [-70, -21], [-64, -35], [-60, -46], [-67, -55], [-76, -50],
+        [-80, -34], [-78, -18], [-81, -2], [-91, 10], [-104, 18],
+        [-115, 30], [-124, 41],
+      ],
+      towns: [
+        { name: "Vancouver", lon: -123.12, lat: 49.28 },
+        { name: "Los Angeles", lon: -118.24, lat: 34.05 },
+        { name: "Mexico City", lon: -99.13, lat: 19.43 },
+        { name: "Bogota", lon: -74.07, lat: 4.71 },
+        { name: "Manaus", lon: -60.02, lat: -3.12 },
+        { name: "Sao Paulo", lon: -46.63, lat: -23.55 },
+        { name: "Buenos Aires", lon: -58.38, lat: -34.60 },
+      ],
+      peat: [[-62, -4, 5, 5], [-75, 4, 4, 5], [-90, 17, 4, 3]],
+      flares: [[-102, 24], [-70, 8], [-54, -20]],
+    },
+  };
+  // REGION only sets the background map until the player picks a continent.
+  let BOUNDS, LAND, TOWNS, PEAT, FLARE_SITES, chosenArea = null;
+  function useRegion(name) {
+    ({ bounds: BOUNDS, land: LAND, towns: TOWNS, peat: PEAT, flares: FLARE_SITES } = REGIONS[name]);
+  }
+  useRegion(REGION);
   const DIRS = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]];
 
   const inside = (lon, lat, poly) => {
@@ -445,6 +510,24 @@
   $("t-sub").textContent = T.sub;
   $("t-rules").innerHTML = T.rules.map((r) => `<li>${r}</li>`).join("");
   $("startBtn").textContent = T.start;
+  $("t-chooseArea").textContent = T.chooseArea;
+  $("changeAreaBtn").textContent = T.changeArea;
+  for (const name of ["Asia", "America", "Europe"]) {
+    const button = document.createElement("button");
+    button.className = "area";
+    button.dataset.area = name;
+    button.textContent = T.areas[name] || name;
+    button.addEventListener("click", () => chooseArea(name));
+    $("areas").appendChild(button);
+  }
+  function chooseArea(name) {
+    chosenArea = name;
+    useRegion(name); resize();
+    for (const button of $("areas").children) {
+      button.classList.toggle("selected", button.dataset.area === name);
+    }
+    $("startBtn").disabled = false;
+  }
   $("againBtn").textContent = T.again;
   $("pauseBtn").textContent = `⏸ ${T.pause}`;
   $("stopBtn").textContent = `⏹ ${T.stop}`;
@@ -455,6 +538,7 @@
   const show = (id, visible) => $(id).classList.toggle("hidden", !visible);
 
   function begin() {
+    if (!chosenArea) return;
     resize(); reset(); state = "play";
     show("start", false); show("end", false); show("pause", false); show("controls", true);
   }
@@ -495,11 +579,14 @@
   }
   $("startBtn").addEventListener("click", begin);
   $("againBtn").addEventListener("click", begin);
+  $("changeAreaBtn").addEventListener("click", () => {
+    state = "start"; show("end", false); show("start", true);
+  });
 
   // Read-only status for automated checks.
   window.hazePatrol = {
     get state() { return state; }, get score() { return score; }, get lives() { return lives; },
-    get timeLeft() { return timeLeft; },
+    get timeLeft() { return timeLeft; }, get area() { return chosenArea; },
     get fires() { return fires.map((f) => ({ ...f, xy: toPx(f.lon, f.lat) })); },
   };
 

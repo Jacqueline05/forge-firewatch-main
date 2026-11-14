@@ -94,7 +94,7 @@ def load_observations(source) -> pd.DataFrame:
         if column in observations:
             observations[column] = pd.to_numeric(observations[column], errors="coerce")
     if "region" not in observations:
-        observations["region"] = "Borneo"
+        observations["region"] = "Unknown area"
     if "id" not in observations:
         observations["id"] = [f"OBS-{i:04d}" for i in range(len(observations))]
 

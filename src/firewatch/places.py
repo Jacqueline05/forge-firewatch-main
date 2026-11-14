@@ -1,4 +1,4 @@
-"""Towns and small geography helpers used across Borneo FireWatch."""
+"""Settlement labels and small geography helpers."""
 from __future__ import annotations
 
 import numpy as np
@@ -6,13 +6,60 @@ import pandas as pd
 
 
 EARTH_RADIUS_KM = 6371.0
-# Sarawak and the rest of Borneo use UTC+8 all year (no daylight saving).
-LOCAL_UTC_OFFSET = pd.Timedelta(hours=8)
+# UTC provides a consistent display date for detections anywhere in the world.
+DISPLAY_UTC_OFFSET = pd.Timedelta(0)
 
-# Approximate town-centre coordinates, used to describe locations and to
-# check which towns may be downwind of a fire.
+# Representative global city coordinates for labels and smoke screening.
+# Every detection is labeled with its nearest town from this list; the
+# distance is shown alongside so far-away matches stay clear.
 TOWNS = pd.DataFrame(
     [
+        ("Vancouver", 49.2827, -123.1207),
+        ("Los Angeles", 34.0522, -118.2437),
+        ("Houston", 29.7604, -95.3698),
+        ("Chicago", 41.8781, -87.6298),
+        ("New York", 40.7128, -74.0060),
+        ("Miami", 25.7617, -80.1918),
+        ("Mexico City", 19.4326, -99.1332),
+        ("Bogota", 4.7110, -74.0721),
+        ("Manaus", -3.1190, -60.0217),
+        ("Codajas", -3.8370, -62.0570),
+        ("Lima", -12.0464, -77.0428),
+        ("Sao Paulo", -23.5505, -46.6333),
+        ("Buenos Aires", -34.6037, -58.3816),
+        ("London", 51.5072, -0.1276),
+        ("Madrid", 40.4168, -3.7038),
+        ("Paris", 48.8566, 2.3522),
+        ("Athens", 37.9838, 23.7275),
+        ("Dakar", 14.7167, -17.4677),
+        ("Lagos", 6.5244, 3.3792),
+        ("Kinshasa", -4.4419, 15.2663),
+        ("Kisangani", 0.5157, 25.1909),
+        ("Nairobi", -1.2921, 36.8219),
+        ("Johannesburg", -26.2041, 28.0473),
+        ("Cairo", 30.0444, 31.2357),
+        ("Istanbul", 41.0082, 28.9784),
+        ("Riyadh", 24.7136, 46.6753),
+        ("Dubai", 25.2048, 55.2708),
+        ("Karachi", 24.8607, 67.0011),
+        ("Mumbai", 19.0760, 72.8777),
+        ("Delhi", 28.6139, 77.2090),
+        ("Bhopal", 23.2599, 77.4126),
+        ("Dhaka", 23.8103, 90.4125),
+        ("Bangkok", 13.7563, 100.5018),
+        ("Hanoi", 21.0285, 105.8542),
+        ("Manila", 14.5995, 120.9842),
+        ("Jakarta", -6.2088, 106.8456),
+        ("Singapore", 1.3521, 103.8198),
+        ("Beijing", 39.9042, 116.4074),
+        ("Seoul", 37.5665, 126.9780),
+        ("Tokyo", 35.6762, 139.6503),
+        ("Perth", -31.9505, 115.8605),
+        ("Darwin", -12.4634, 130.8456),
+        ("Katherine", -14.4652, 132.2635),
+        ("Sydney", -33.8688, 151.2093),
+        ("Melbourne", -37.8136, 144.9631),
+        ("Auckland", -36.8509, 174.7645),
         ("Kuching", 1.5535, 110.3593),
         ("Sibu", 2.2870, 111.8305),
         ("Miri", 4.3995, 113.9914),
@@ -98,9 +145,10 @@ def nearest_towns(latitudes, longitudes) -> list[str]:
     distances = haversine_km(
         lat, lon, TOWNS["latitude"].to_numpy()[None, :], TOWNS["longitude"].to_numpy()[None, :]
     )
-    return TOWNS["town"].to_numpy()[np.argmin(distances, axis=1)].tolist()
+    nearest = np.argmin(distances, axis=1)
+    return TOWNS["town"].to_numpy()[nearest].tolist()
 
 
 def local_date(timestamps: pd.Series) -> pd.Series:
-    """Calendar date in Sarawak time (UTC+8) for UTC timestamps."""
-    return (timestamps + LOCAL_UTC_OFFSET).dt.date
+    """Calendar date in UTC for timestamps."""
+    return (timestamps + DISPLAY_UTC_OFFSET).dt.date

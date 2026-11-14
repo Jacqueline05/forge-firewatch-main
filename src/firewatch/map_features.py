@@ -30,8 +30,8 @@ def build_map_features(observations: pd.DataFrame) -> pd.DataFrame:
         )
         if is_pair:
             included.add(partner_position)
-            row_region = row.get("region", "Borneo")
-            partner_region = partner.get("region", "Borneo")
+            row_region = row.get("region", "Unknown area")
+            partner_region = partner.get("region", "Unknown area")
             latitudes = [row["latitude"], partner["latitude"]]
             longitudes = [row["longitude"], partner["longitude"]]
             observed_at = min(row["observed_at"], partner["observed_at"])

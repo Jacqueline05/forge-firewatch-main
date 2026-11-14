@@ -1,1 +1,1 @@
-"""Borneo FireWatch harmonization package."""
+"""Forge Firewatch harmonization package."""

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .places import LOCAL_UTC_OFFSET, compass
+from .places import DISPLAY_UTC_OFFSET, compass
 from .scoring import LEVEL_MS
 
 
@@ -57,12 +57,12 @@ def summary_facts(
 ) -> dict:
     """Numbers behind the daily summary, for text or graphic display.
 
-    Covers the latest day in the data (Malaysia Time). ``peat`` is None when
+    Covers the latest day in the data (UTC). ``peat`` is None when
     no peat layer is loaded.
     """
-    latest_day = (events["last_seen"].max() + LOCAL_UTC_OFFSET).date()
-    first_days = (events["first_seen"] + LOCAL_UTC_OFFSET).dt.date
-    last_days = (events["last_seen"] + LOCAL_UTC_OFFSET).dt.date
+    latest_day = (events["last_seen"].max() + DISPLAY_UTC_OFFSET).date()
+    first_days = (events["first_seen"] + DISPLAY_UTC_OFFSET).dt.date
+    last_days = (events["last_seen"] + DISPLAY_UTC_OFFSET).dt.date
     active = events[last_days == latest_day]
     risky = (
         towns_at_risk[towns_at_risk["event_id"].isin(active["event_id"])]
@@ -113,7 +113,7 @@ def daily_summary(
 
     if ms:
         lines = [
-            f"**Ringkasan {date_text}** (MYT, UTC+08:00)",
+            f"**Ringkasan {date_text}** (UTC)",
             "",
             f"**{len(active)}** kawasan kebakaran aktif, **{new}** baharu hari ini. "
             f"**{high}** memerlukan perhatian tinggi, **{both}** dikesan oleh "
@@ -122,7 +122,7 @@ def daily_summary(
         ]
     else:
         lines = [
-            f"**Summary for {date_text}** (MYT, UTC+08:00)",
+            f"**Summary for {date_text}** (UTC)",
             "",
             f"**{len(active)}** active fire areas, **{new}** new today. "
             f"**{high}** need high attention, **{both}** seen by both satellites"

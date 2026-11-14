@@ -1,4 +1,4 @@
-"""Haze Patrol: a 60-second arcade game about Sarawak fires and haze.
+"""Haze Patrol: a 60-second arcade game about fires and haze.
 
 The game itself runs in the browser (``haze_patrol.html``, plain canvas and
 JavaScript). Python only fills in the text for the chosen language.
@@ -10,11 +10,12 @@ from pathlib import Path
 
 
 GAME_FILE = Path(__file__).with_name("haze_patrol.html")
+GAME_AREAS = ("Asia", "America", "Europe")
 
 GAME_TEXT = {
     "en": {
         "title": "Haze Patrol",
-        "sub": "60 seconds to protect Sarawak's towns from haze.",
+        "sub": "60 seconds to protect people from haze.",
         "rules": [
             "🔥 <b>Tap fires</b> to drop water. Small fires give bonus points.",
             "🟤 <b>Peat fires</b> grow faster and make more smoke: get them first!",
@@ -23,6 +24,9 @@ GAME_TEXT = {
             "🏭 <b>Gas flares are false alarms.</b> Don't tap them (−50).",
         ],
         "start": "▶ Start patrol",
+        "chooseArea": "Choose a continent to patrol",
+        "changeArea": "🌍 Change continent",
+        "areas": {"Asia": "Asia", "America": "America", "Europe": "Europe"},
         "again": "🔄 Play again",
         "over": "Patrol over",
         "stopped": "Patrol stopped",
@@ -59,21 +63,21 @@ GAME_TEXT = {
             [9000, "🔥 Haze Hero"],
         ],
         "facts": [
-            "Peat fires can smoulder underground for weeks, which is why they cause "
-            "most of Borneo's haze.",
+            "Peat fires can smoulder underground for weeks and produce persistent "
+            "smoke.",
             "MODIS and VIIRS are NASA satellite sensors. When both see the same heat, "
             "a real fire is more likely.",
             "Gas flares and factories show up as heat too. That's why FireWatch "
             "filters known heat sources.",
-            "Smoke follows the wind. During the south-west monsoon (June to "
-            "September) haze often drifts north-east.",
+            "Wind direction and speed affect where smoke travels; smoke can "
+            "drift in any direction.",
             "A satellite hotspot is a heat signal, not proof of a fire. Ground "
             "reports help confirm what is really happening.",
         ],
     },
     "ms": {
         "title": "Peronda Jerebu",
-        "sub": "60 saat untuk melindungi bandar di Sarawak daripada jerebu.",
+        "sub": "60 saat untuk melindungi penduduk daripada jerebu.",
         "rules": [
             "🔥 <b>Ketik kebakaran</b> untuk menjatuhkan air. Api kecil beri mata bonus.",
             "🟤 <b>Kebakaran gambut</b> membesar lebih cepat dan menghasilkan lebih "
@@ -83,6 +87,9 @@ GAME_TEXT = {
             "🏭 <b>Suar gas ialah amaran palsu.</b> Jangan ketik (−50).",
         ],
         "start": "▶ Mula meronda",
+        "chooseArea": "Pilih benua untuk dironda",
+        "changeArea": "🌍 Tukar benua",
+        "areas": {"Asia": "Asia", "America": "Amerika", "Europe": "Eropah"},
         "again": "🔄 Main semula",
         "over": "Rondaan tamat",
         "stopped": "Rondaan dihentikan",
@@ -119,14 +126,14 @@ GAME_TEXT = {
             [9000, "🔥 Wira Jerebu"],
         ],
         "facts": [
-            "Kebakaran gambut boleh membara di bawah tanah berminggu-minggu, sebab "
-            "itu ia punca utama jerebu di Borneo.",
+            "Kebakaran gambut boleh membara di bawah tanah berminggu-minggu dan "
+            "menghasilkan asap berpanjangan.",
             "MODIS dan VIIRS ialah pengesan satelit NASA. Jika kedua-duanya mengesan "
             "haba yang sama, kebakaran sebenar lebih berkemungkinan.",
             "Suar gas dan kilang juga dikesan sebagai haba. Sebab itu FireWatch "
             "menapis sumber haba yang diketahui.",
-            "Asap mengikut angin. Semasa monsun barat daya (Jun hingga September) "
-            "jerebu sering hanyut ke timur laut.",
+            "Arah dan kelajuan angin mempengaruhi pergerakan asap; asap boleh "
+            "bergerak ke mana-mana arah.",
             "Titik panas satelit ialah isyarat haba, bukan bukti kebakaran. Laporan "
             "lapangan membantu mengesahkannya.",
         ],
@@ -134,9 +141,16 @@ GAME_TEXT = {
 }
 
 
-def haze_patrol_html(language: str = "en") -> str:
+def haze_patrol_html(language: str = "en", area: str = "Asia") -> str:
     """The game page with its text in English ("en") or Bahasa Malaysia ("ms")."""
+    if area not in GAME_AREAS:
+        raise ValueError(f"Unknown Haze Patrol area: {area}")
     text = GAME_TEXT.get(language, GAME_TEXT["en"])
     # Escape "</" so the text can never close the <script> tag early.
     payload = json.dumps(text, ensure_ascii=False).replace("</", "<\\/")
-    return GAME_FILE.read_text(encoding="utf-8").replace("__TEXT__", payload)
+    area_payload = json.dumps(area, ensure_ascii=False)
+    return (
+        GAME_FILE.read_text(encoding="utf-8")
+        .replace("__TEXT__", payload)
+        .replace("__AREA__", area_payload)
+    )

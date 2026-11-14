@@ -1,5 +1,6 @@
 import html
 import io
+import math
 from pathlib import Path
 import sys
 
@@ -11,7 +12,7 @@ import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from firewatch.harmonize import MatchConfig, harmonize  # noqa: E402
-from firewatch.filters import filter_observations  # noqa: E402
+from firewatch.filters import filter_bbox, filter_observations  # noqa: E402
 from firewatch.map_features import (  # noqa: E402
     build_map_features,
     coverage_circle,
@@ -31,13 +32,16 @@ from firewatch.feedback import (  # noqa: E402
 )
 from firewatch.firms import (  # noqa: E402
     AREAS,
+    BBox,
+    CUSTOM_AREA,
     MAX_DAY_RANGE,
     FirmsError,
+    WORLD_AREA,
     fetch_live_observations,
 )
 from firewatch.haze import Wind, WeatherError, fetch_winds, haze_outlook  # noqa: E402
 from firewatch.peat import load_peat_layer, points_on_peat  # noqa: E402
-from firewatch.places import LOCAL_UTC_OFFSET, compass  # noqa: E402
+from firewatch.places import DISPLAY_UTC_OFFSET, compass  # noqa: E402
 from firewatch.scoring import LEVEL_MS, score_events  # noqa: E402
 from firewatch.summary import format_date, summary_facts  # noqa: E402
 from firewatch.game import haze_patrol_html  # noqa: E402
@@ -85,10 +89,10 @@ SUMMARY_TEXT = {
             "one": "Only one of the two satellites (MODIS or VIIRS) detected heat "
                    "here. It may be small, short-lived, hidden by cloud, or a "
                    "false alarm, so it is less certain.",
-            "days": "The number of different days (Malaysia Time) on which heat "
+            "days": "The number of different days (UTC) on which heat "
                     "was detected here. More days means the fire keeps burning.",
-            "peat": "This area is on peat soil. Peat fires smoulder underground "
-                    "for weeks and cause most of Borneo's haze.",
+            "peat": "This area is on peat soil. Peat fires can smoulder underground "
+                    "for weeks and produce persistent smoke.",
             "spread": "The direction the fire has moved between the first and the "
                       "latest day it was detected.",
         },
@@ -135,10 +139,10 @@ SUMMARY_TEXT = {
             "one": "Hanya satu daripada dua satelit (MODIS atau VIIRS) mengesan "
                    "haba di sini. Mungkin kecil, singkat, dilindungi awan atau "
                    "amaran palsu, jadi kurang pasti.",
-            "days": "Bilangan hari berbeza (Waktu Malaysia) haba dikesan di sini. "
+            "days": "Bilangan hari berbeza (UTC) haba dikesan di sini. "
                     "Lebih banyak hari bermakna kebakaran masih berterusan.",
-            "peat": "Kawasan ini di atas tanah gambut. Kebakaran gambut membara "
-                    "di bawah tanah berminggu-minggu dan punca utama jerebu di Borneo.",
+            "peat": "Kawasan ini di atas tanah gambut. Kebakaran gambut boleh "
+                    "membara di bawah tanah berminggu-minggu dan menghasilkan asap berpanjangan.",
             "spread": "Arah kebakaran bergerak antara hari pertama dan hari "
                       "terkini ia dikesan.",
         },
@@ -250,16 +254,27 @@ def _map_frame_data(
     return traces
 
 
+def _map_zoom(latitudes: pd.Series, longitudes: pd.Series, maximum: float = 5.0) -> float:
+    latitude_span = float(latitudes.max() - latitudes.min()) * 2
+    longitude_span = float(longitudes.max() - longitudes.min())
+    span = max(latitude_span, longitude_span, 0.01)
+    return max(0.5, min(maximum, maximum - math.log2(span / 10)))
+
+
 @st.cache_data(show_spinner="Loading observations...")
-def load_data(file_bytes: bytes | None) -> pd.DataFrame:
-    """Load the uploaded CSV, or the demo data when nothing is uploaded."""
+def load_data(file_bytes: bytes | None, demo_mtime: float | None = None) -> pd.DataFrame:
+    """Load the uploaded CSV, or the demo data when nothing is uploaded.
+
+    Callers pass the demo file's modification time so the cache refreshes
+    when the demo CSV is edited (the cache key ignores file contents).
+    """
     return load_observations(
         io.BytesIO(file_bytes) if file_bytes is not None else DATA_PATH
     )
 
 
 @st.cache_data(show_spinner="Downloading the latest NASA FIRMS data...", ttl=1800)
-def load_live(map_key: str, area: str, day_range: int) -> pd.DataFrame:
+def load_live(map_key: str, area: str | BBox, day_range: int) -> pd.DataFrame:
     return fetch_live_observations(map_key, area, day_range)
 
 
@@ -284,7 +299,7 @@ def run_harmonize(
 
 
 st.set_page_config(
-    page_title="Borneo FireWatch",
+    page_title="Forge Firewatch",
     page_icon="🔥",
     layout="wide",
     # The sidebar works as a hamburger menu: closed until the user opens it.
@@ -304,10 +319,6 @@ st.markdown(
     }
     .hero h1 { color: white; margin: 0 0 .15rem 0; padding: 0; font-size: 1.9rem; }
     .hero p { color: #e7f6f2; font-size: .98rem; margin: 0; }
-    .eyebrow {
-        color: #ffd166; text-transform: uppercase; letter-spacing: .12em;
-        font-weight: 700; font-size: .72rem;
-    }
     /* Let the sidebar's content fill its height so Sign out can sit at the bottom. */
     [data-testid="stSidebarUserContent"] {
         display: flex;
@@ -496,8 +507,7 @@ def login_screen() -> bool:
     form_col.markdown(
         """
         <div class="hero hero-login">
-            <div class="eyebrow">FORGEX6 • NASA Space Apps Challenge 2026</div>
-            <h1>🔥 Borneo FireWatch</h1>
+            <h1>🔥 Forge Firewatch</h1>
             <p>A clearer view of MODIS and VIIRS thermal-anomaly observations.</p>
         </div>
         """,
@@ -535,8 +545,7 @@ if not login_screen():
 st.markdown(
     """
     <div class="hero">
-        <div class="eyebrow">FORGEX6 • SARAWAK AND BORNEO</div>
-        <h1>🔥 Borneo FireWatch</h1>
+        <h1>🔥 Forge Firewatch</h1>
         <p>Making satellite heat signals easier for everyone to explore,
         compare and understand.</p>
     </div>
@@ -547,7 +556,7 @@ st.markdown(
 with st.expander("Start here: what am I looking at?", expanded=False):
     st.markdown(
         """
-        Borneo FireWatch compares heat signals seen by two NASA satellites.
+        Forge Firewatch compares heat signals seen by two NASA satellites.
         A dot on the map is a **possible hotspot**, not proof of a fire.
 
         - **📍 Today** gives a short summary, the fire areas that need
@@ -604,11 +613,62 @@ with st.sidebar:
             "VIIRS detections from NASA FIRMS."
         ),
     )
-    live_area, live_days, uploaded_file = "Sarawak", 3, None
-    if data_source == "Live NASA FIRMS":
-        live_area = st.selectbox(
-            "Area", list(AREAS), disabled=locked, key="live_area"
+    demo_area, live_area, live_days, uploaded_file = WORLD_AREA, WORLD_AREA, 1, None
+    live_bbox = (-180.0, -90.0, 180.0, 90.0)
+    if data_source == "Demo data":
+        demo_area = st.selectbox(
+            "Area", [WORLD_AREA, "Borneo"], disabled=locked, key="demo_area"
         )
+    elif data_source == "Live NASA FIRMS":
+        live_area = st.selectbox(
+            "Area", [WORLD_AREA, *AREAS, CUSTOM_AREA], disabled=locked, key="live_area"
+        )
+        if live_area == WORLD_AREA:
+            st.caption(
+                "Worldwide coverage: all longitudes and latitudes. "
+                "Use fewer days for faster global queries."
+            )
+        elif live_area == CUSTOM_AREA:
+            st.caption("Enter west, south, east and north coordinates in decimal degrees.")
+            west_col, east_col = st.columns(2)
+            south_col, north_col = st.columns(2)
+            west = west_col.number_input(
+                "West longitude",
+                min_value=-180.0,
+                max_value=180.0,
+                value=float(live_bbox[0]),
+                step=0.1,
+                key="custom_west",
+                disabled=locked,
+            )
+            south = south_col.number_input(
+                "South latitude",
+                min_value=-90.0,
+                max_value=90.0,
+                value=float(live_bbox[1]),
+                step=0.1,
+                key="custom_south",
+                disabled=locked,
+            )
+            east = east_col.number_input(
+                "East longitude",
+                min_value=-180.0,
+                max_value=180.0,
+                value=float(live_bbox[2]),
+                step=0.1,
+                key="custom_east",
+                disabled=locked,
+            )
+            north = north_col.number_input(
+                "North latitude",
+                min_value=-90.0,
+                max_value=90.0,
+                value=float(live_bbox[3]),
+                step=0.1,
+                key="custom_north",
+                disabled=locked,
+            )
+            live_bbox = (west, south, east, north)
         live_days = st.slider(
             "Days of data", 1, MAX_DAY_RANGE, 3, disabled=locked, key="live_days"
         )
@@ -729,7 +789,7 @@ map_key = get_secret("FIRMS_MAP_KEY")
 try:
     if locked:
         # The game and guide don't use the filtered data.
-        data = load_data(None).iloc[0:0].copy()
+        data = load_data(None, DATA_PATH.stat().st_mtime).iloc[0:0].copy()
     elif data_source == "Live NASA FIRMS":
         if not map_key:
             st.info(
@@ -738,7 +798,8 @@ try:
             )
             firms_key_help()
             stop_page()
-        data = load_live(map_key, live_area, live_days)
+        area = live_bbox if live_area == CUSTOM_AREA else live_area
+        data = load_live(map_key, area, live_days)
     elif data_source == "Upload CSV":
         if uploaded_file is None:
             st.info(
@@ -755,7 +816,9 @@ try:
             stop_page()
         data = load_data(uploaded_file.getvalue())
     else:
-        data = load_data(None)
+        data = load_data(None, DATA_PATH.stat().st_mtime)
+        if demo_area == "Borneo":
+            data = filter_bbox(data, AREAS["Borneo"])
 except (ValueError, FirmsError) as error:
     st.error(f"Data could not be loaded: {error}")
     stop_page()
@@ -778,7 +841,6 @@ except ValueError as error:
     st.warning(f"Known heat sources could not be loaded: {error}")
     known_sources = false_alarm_sites(reports)
 data = flag_false_alarms(data, known_sources)
-flagged = data[data["false_alarm_reason"] != ""]
 if hide_false_alarms:
     data = data[data["false_alarm_reason"] == ""].copy()
 
@@ -968,15 +1030,15 @@ def summary_card_html(facts: dict, language: str, peat_available: bool) -> str:
     return (
         '<div class="fw-summary">'
         f'<div class="fw-head"><span class="fw-title">{text["title"]}</span>'
-        f'<span class="fw-date">{date_text} · MYT (UTC+08:00)</span></div>'
+        f'<span class="fw-date">{date_text} · UTC</span></div>'
         f'<div class="fw-tiles">{tiles}</div>'
         f'<div class="fw-section">{text["top"]}</div>{body}{towns}{legend}'
         f'<div class="fw-note">{text["note"]}</div></div>'
     )
 
 
-def _local_time(series: pd.Series) -> pd.Series:
-    return (series + LOCAL_UTC_OFFSET).dt.strftime("%d %b %H:%M")
+def _display_time(series: pd.Series) -> pd.Series:
+    return (series + DISPLAY_UTC_OFFSET).dt.strftime("%d %b %H:%M")
 
 
 def events_map(
@@ -1049,7 +1111,7 @@ def events_map(
                 "lat": float(events["latitude"].mean()),
                 "lon": float(events["longitude"].mean()),
             },
-            "zoom": 5.2,
+            "zoom": _map_zoom(events["latitude"], events["longitude"], 5.2),
         },
         height=height,
         margin=dict(t=0, b=0, l=0, r=0),
@@ -1060,17 +1122,6 @@ def events_map(
 
 
 if section == "today":
-    notes = []
-    if is_demo:
-        notes.append("Demo mode: fictional fires, illustrative peat areas and an example wind.")
-    if len(flagged):
-        notes.append(
-            f"{len(flagged)} likely false alarm(s) "
-            + ("hidden." if hide_false_alarms else "shown.")
-        )
-    if notes:
-        st.caption(" ".join(notes))
-
     has_events = not events.empty
     kpis = [
         ("🔥", len(events), "Fire areas",
@@ -1146,7 +1197,7 @@ if section == "fire_areas":
                 "Days": events["days_active"],
                 "Both satellites": events["both_satellites"],
                 "On peat": events["on_peat"],
-                "Last seen": _local_time(events["last_seen"]),
+                "Last seen": _display_time(events["last_seen"]),
                 "Ground report": events["ground_report"].replace("", "–"),
             }
         )
@@ -1177,14 +1228,14 @@ if section == "fire_areas":
                     help="Latest report from people on the ground, if any."
                 ),
                 "Last seen": st.column_config.TextColumn(
-                    help="Malaysia Time (MYT, UTC+08:00)."
+                    help="Displayed in UTC for consistent global comparison."
                 ),
             },
         )
         st.download_button(
             "Download full table (CSV)",
             data=events.to_csv(index=False).encode("utf-8"),
-            file_name="borneo-firewatch-fire-areas.csv",
+            file_name="forge-firewatch-fire-areas.csv",
             mime="text/csv",
         )
 
@@ -1216,7 +1267,7 @@ if section == "fire_areas":
                     feedback_store.add(
                         event.latitude,
                         event.longitude,
-                        (event.last_seen + LOCAL_UTC_OFFSET).date().isoformat(),
+                        (event.last_seen + DISPLAY_UTC_OFFSET).date().isoformat(),
                         verdict,
                         note,
                         st.session_state.get("username", ""),
@@ -1266,6 +1317,7 @@ if section == "signals":
             "lat": float(map_data["latitude"].mean()),
             "lon": float(map_data["longitude"].mean()),
         }
+        zoom = _map_zoom(map_data["latitude"], map_data["longitude"])
         if map_mode == "Signal concentration":
             map_chart = px.density_mapbox(
                 map_data,
@@ -1275,7 +1327,7 @@ if section == "signals":
                 labels={"confidence": "Confidence"},
                 radius=28,
                 center=center,
-                zoom=5,
+                zoom=zoom,
                 height=520,
                 mapbox_style="open-street-map",
                 color_continuous_scale=[
@@ -1371,7 +1423,7 @@ if section == "signals":
                 mapbox={
                     "style": "open-street-map",
                     "center": center,
-                    "zoom": 5,
+                    "zoom": zoom,
                 },
                 height=520,
             )
@@ -1491,15 +1543,16 @@ if section == "signals":
             st.download_button(
                 "Download filtered results",
                 data=result.to_csv(index=False).encode("utf-8"),
-                file_name="borneo-firewatch-harmonized-results.csv",
+                file_name="forge-firewatch-harmonized-results.csv",
                 mime="text/csv",
             )
 
 if section == "game":
+    # Players choose Asia, America or Europe on the game's start screen.
     components.html(haze_patrol_html(language_code), height=600)
     st.caption(
-        "Haze Patrol is a practice game with made-up fires. Your best score "
-        "is saved in this browser only."
+        "Haze Patrol uses illustrative practice maps and made-up fires. Your "
+        "best score is saved in this browser only."
     )
 
 if section == "guide":
@@ -1512,7 +1565,7 @@ if section == "guide":
         |---|---|---|
         | Seen by both MODIS and VIIRS | 35 | Two sensors agreeing makes a real fire likelier |
         | Burning for several days (full at 3) | 25 | Lasting fires are rarely false alarms |
-        | On peatland | 25 | Peat fires smoulder for weeks and cause most of Borneo's haze |
+        | On peatland | 25 | Peat fires can smoulder for weeks and produce persistent smoke |
         | Satellite confidence | 15 | The satellites' own confidence in the detection |
 
         **High** is 70 or more, **Medium** 40 to 69. When no peat layer is
@@ -1521,7 +1574,7 @@ if section == "guide":
 
         **Smoke direction** is a straight-line estimate using the average
         10 m wind over the next 24 hours (Open-Meteo forecast). It is not an
-        air-quality forecast; check official APIMS readings for actual air
+        air-quality forecast; check local official readings for actual air
         quality.
         """
     )
@@ -1532,8 +1585,8 @@ if section == "guide":
           near-real-time and archive data.
         - **Wind:** Open-Meteo forecast API.
         - **Peatland:** add a peatland GeoJSON as `data/peatland.geojson`
-          (for example a Borneo extract of a published peatland map). The
-          demo uses illustrative areas only.
+          (use a published map covering your study area). The demo layer has
+          illustrative shapes in several regions, not real boundaries.
         - **Known heat sources:** `data/known_heat_sources.csv`, plus places
           reported as false alarms in the Fire areas tab.
         """
@@ -1553,9 +1606,11 @@ if section == "guide":
     )
     st.subheader("About the project")
     st.write(
-        "Borneo FireWatch is an exploratory FORGEX6 prototype for Sarawak and "
-        "Borneo. It runs on fictional demonstration data by default and can "
-        "load live NASA FIRMS data when a FIRMS MAP_KEY is configured."
+        "Forge Firewatch is an exploratory FORGEX6 prototype. It runs on "
+        "fictional demonstration data from several world regions by default "
+        "and can load live NASA FIRMS data worldwide or by selected bounding "
+        "box when a FIRMS "
+        "MAP_KEY is configured."
     )
     st.subheader("Data safety note")
     st.info(
