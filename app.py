@@ -17,7 +17,6 @@ from firewatch.map_features import (  # noqa: E402
     build_map_features,
     coverage_circle,
 )
-from firewatch.auth import authenticate  # noqa: E402
 from firewatch.loaders import load_observations, quality_score  # noqa: E402
 from firewatch.events import EventConfig, build_events  # noqa: E402
 from firewatch.false_alarms import (  # noqa: E402
@@ -25,8 +24,11 @@ from firewatch.false_alarms import (  # noqa: E402
     load_known_sources,
 )
 from firewatch.feedback import (  # noqa: E402
+    CONFIRMS_TO_RAISE,
+    FALSE_ALARMS_TO_LOWER,
     VERDICTS,
     FeedbackStore,
+    apply_ground_reports,
     attach_feedback,
     false_alarm_sites,
 )
@@ -311,31 +313,78 @@ st.markdown(
     <style>
     .block-container { padding-top: 2.5rem; }
     .hero {
+        position: relative; overflow: hidden; isolation: isolate;
         padding: 1.1rem 1.6rem;
         border-radius: .9rem;
-        background: linear-gradient(135deg, #073b3a 0%, #0b6e69 55%, #f4a261 140%);
+        background: linear-gradient(135deg, #073b3a 0%, #0b6e69 35%, #f4a261 70%,
+                                    #0b6e69 100%);
+        background-size: 250% 250%;
+        animation: fw-gradient 14s ease-in-out infinite, fw-rise .7s ease-out both;
         color: white;
         margin-bottom: 1rem;
+        box-shadow: 0 10px 30px rgba(11, 110, 105, .25);
+    }
+    /* Soft light sweeping across the banner */
+    .hero::after {
+        content: ""; position: absolute; inset: 0; z-index: -1;
+        background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, .16) 50%,
+                                    transparent 70%);
+        transform: translateX(-100%);
+        animation: fw-sweep 6s ease-in-out 1s infinite;
     }
     .hero h1 { color: white; margin: 0 0 .15rem 0; padding: 0; font-size: 1.9rem; }
-    .hero p { color: #e7f6f2; font-size: .98rem; margin: 0; }
-    /* Let the sidebar's content fill its height so Sign out can sit at the bottom. */
-    [data-testid="stSidebarUserContent"] {
-        display: flex;
-        flex-direction: column;
-        min-height: calc(100vh - 5rem);
+    .hero p {
+        color: #e7f6f2; font-size: .98rem; margin: 0;
+        animation: fw-rise .7s ease-out .2s both;
     }
-    [data-testid="stSidebarUserContent"] > div,
-    [data-testid="stSidebarUserContent"] > div > div,
-    [data-testid="stSidebarUserContent"] > div > div > div,
-    [data-testid="stSidebarUserContent"] > div > div > div > div {
-        display: flex;
-        flex-direction: column;
-        flex: 1 1 auto;
+    .fw-flame {
+        display: inline-block; transform-origin: 50% 90%;
+        animation: fw-flicker 1.6s ease-in-out infinite;
+        filter: drop-shadow(0 0 6px rgba(255, 140, 50, .8));
     }
-    [data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-signout) {
-        margin-top: auto;
-        padding-top: .75rem;
+    /* Embers drifting up through the banner */
+    .fw-embers { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+    .fw-embers span {
+        position: absolute; bottom: -10px; left: var(--x);
+        width: var(--s); height: var(--s); border-radius: 50%;
+        background: radial-gradient(circle, #ffd27a 0%, #ff8a3d 55%, transparent 70%);
+        opacity: 0;
+        animation: fw-ember var(--d) linear var(--delay) infinite;
+    }
+
+    @keyframes fw-gradient {
+        0%, 100% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+    }
+    @keyframes fw-sweep {
+        0% { transform: translateX(-100%); }
+        60%, 100% { transform: translateX(100%); }
+    }
+    @keyframes fw-flicker {
+        0%, 100% { transform: scale(1) rotate(-2deg); }
+        25% { transform: scale(1.08, .95) rotate(2deg); }
+        50% { transform: scale(.96, 1.06) rotate(-1deg); }
+        75% { transform: scale(1.05) rotate(3deg); }
+    }
+    @keyframes fw-ember {
+        0% { transform: translate(0, 0) scale(1); opacity: 0; }
+        10% { opacity: .9; }
+        100% { transform: translate(var(--drift), -160px) scale(.3); opacity: 0; }
+    }
+    @keyframes fw-rise {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: none; }
+    }
+    @keyframes fw-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+    @keyframes fw-glow {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(244, 162, 97, .55),
+                               0 6px 18px rgba(11, 110, 105, .35); }
+        50% { box-shadow: 0 0 0 10px rgba(244, 162, 97, 0),
+                          0 6px 24px rgba(244, 162, 97, .45); }
+    }
+    @keyframes fw-shine {
+        0%, 100% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
     }
     /* Section switcher as frosted-glass pills */
     .st-key-section [role="radiogroup"] {
@@ -360,7 +409,7 @@ st.markdown(
         border: 1px solid transparent;
         cursor: pointer;
         white-space: nowrap;
-        transition: background .2s ease, box-shadow .2s ease;
+        transition: background .2s ease, box-shadow .2s ease, transform .15s ease;
     }
     .st-key-section label[data-baseweb="radio"] > div:first-child { display: none; }
     .st-key-section label[data-baseweb="radio"] p { font-size: .92rem; font-weight: 600; }
@@ -373,7 +422,10 @@ st.markdown(
                                     rgba(244, 162, 97, .65));
         border-color: rgba(255, 255, 255, .22);
         box-shadow: 0 4px 16px rgba(42, 157, 143, .35), inset 0 1px 0 rgba(255, 255, 255, .25);
+        background-size: 200% 200%;
+        animation: fw-shine 5s ease-in-out infinite;
     }
+    .st-key-section label[data-baseweb="radio"]:active { transform: scale(.96); }
     .st-key-section label[data-baseweb="radio"]:has(input:checked) p { color: #fff; }
     @media (max-width: 640px) {
         .st-key-section label[data-baseweb="radio"] { padding: .4rem .7rem; }
@@ -390,8 +442,19 @@ st.markdown(
         padding: .75rem .9rem; border-radius: .8rem;
         border: 1px solid rgba(128, 128, 128, .22);
         background: rgba(128, 128, 128, .07);
+        animation: fw-rise .55s ease-out both;
+        transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
     }
-    .fw-kpi-icon { font-size: 1.5rem; }
+    .fw-kpi:nth-child(2) { animation-delay: .08s; }
+    .fw-kpi:nth-child(3) { animation-delay: .16s; }
+    .fw-kpi:nth-child(4) { animation-delay: .24s; }
+    .fw-kpi:hover {
+        transform: translateY(-3px);
+        border-color: rgba(244, 162, 97, .55);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, .18);
+    }
+    .fw-kpi-icon { font-size: 1.5rem; display: inline-block; transition: transform .25s ease; }
+    .fw-kpi:hover .fw-kpi-icon { transform: scale(1.2) rotate(-6deg); }
     .fw-kpi-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
     .fw-kpi-lbl { font-size: .78rem; opacity: .75; }
     @media (max-width: 640px) {
@@ -400,13 +463,30 @@ st.markdown(
         .fw-kpi-num { font-size: 1.3rem; }
     }
 
-    .hero-login { margin-top: 2rem; }
+    .hero-login {
+        margin-top: 3rem; padding: 2.2rem 1.8rem 2rem; text-align: center;
+    }
+    .hero-login h1 { font-size: 2.4rem; }
+    .hero-login p { font-size: 1.05rem; }
+    .st-key-enter button {
+        font-size: 1.15rem; font-weight: 700; padding: .7rem 1rem;
+        border-radius: .8rem; border: none; color: #fff;
+        background: linear-gradient(135deg, #2a9d8f, #0b6e69 50%, #f4a261);
+        background-size: 200% 200%;
+        animation: fw-glow 2.2s ease-in-out infinite, fw-shine 6s ease-in-out infinite,
+                   fw-rise .7s ease-out .35s both;
+        transition: transform .15s ease;
+    }
+    .st-key-enter button:hover { transform: translateY(-2px) scale(1.02); color: #fff; }
+    .st-key-enter button:active { transform: scale(.97); }
+    .st-key-enter button p { font-size: 1.15rem; font-weight: 700; letter-spacing: .03em; }
 
     /* Daily summary card */
     .fw-summary {
         border: 1px solid rgba(128, 128, 128, .28);
         border-radius: .9rem;
         padding: 1rem 1.1rem .9rem;
+        animation: fw-rise .6s ease-out both;
     }
     .fw-head {
         display: flex; justify-content: space-between; align-items: baseline;
@@ -418,7 +498,12 @@ st.markdown(
     .fw-tile {
         background: rgba(42, 157, 143, .12);
         border-radius: .6rem; padding: .55rem .4rem; text-align: center;
+        animation: fw-rise .5s ease-out both;
+        transition: transform .2s ease, background .2s ease;
     }
+    .fw-tile:nth-child(2) { animation-delay: .08s; }
+    .fw-tile:nth-child(3) { animation-delay: .16s; }
+    .fw-tile:hover { transform: translateY(-2px); background: rgba(42, 157, 143, .2); }
     .fw-num { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
     .fw-lbl { font-size: .72rem; opacity: .75; }
     .fw-section {
@@ -428,7 +513,14 @@ st.markdown(
     .fw-card {
         border: 1px solid rgba(128, 128, 128, .22); border-left: 4px solid;
         border-radius: .6rem; padding: .55rem .7rem; margin-bottom: .5rem;
+        animation: fw-rise .5s ease-out both;
+        transition: transform .2s ease, box-shadow .2s ease;
     }
+    .fw-card:nth-of-type(2) { animation-delay: .1s; }
+    .fw-card:nth-of-type(3) { animation-delay: .2s; }
+    .fw-card:nth-of-type(4) { animation-delay: .3s; }
+    .fw-card:nth-of-type(5) { animation-delay: .4s; }
+    .fw-card:hover { transform: translateX(4px); box-shadow: 0 6px 18px rgba(0, 0, 0, .15); }
     .fw-card-top { display: flex; align-items: center; gap: .5rem; }
     .fw-badge {
         color: #fff; font-size: .65rem; font-weight: 700; letter-spacing: .05em;
@@ -441,7 +533,10 @@ st.markdown(
         height: 5px; border-radius: 999px; background: rgba(128, 128, 128, .2);
         margin: .4rem 0 .45rem; overflow: hidden;
     }
-    .fw-bar > div { height: 100%; border-radius: 999px; }
+    .fw-bar > div {
+        height: 100%; border-radius: 999px; transform-origin: left center;
+        animation: fw-grow 1s cubic-bezier(.2, .8, .2, 1) .3s both;
+    }
     .fw-tags { display: flex; flex-wrap: wrap; gap: .3rem; }
     .fw-tags span {
         font-size: .72rem; padding: .1rem .5rem; border-radius: 999px;
@@ -484,11 +579,37 @@ st.markdown(
         padding: .35rem .8rem;
         border: 1px solid rgba(128, 128, 128, .35);
         border-radius: .5rem;
+        transition: transform .15s ease, border-color .2s ease;
+    }
+    [data-testid="stSidebarCollapsedControl"] button:hover {
+        transform: translateY(-1px); border-color: rgba(244, 162, 97, .7);
+    }
+
+    /* Respect people who turn off motion in their system settings. */
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation: none !important;
+            transition: none !important;
+        }
+        .fw-embers { display: none; }
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+# (left %, size px, duration s, delay s, sideways drift px) for each ember.
+_EMBERS = [
+    (6, 5, 5.5, 0.0, 12), (15, 3, 4.2, 1.6, -8), (24, 6, 6.4, 0.8, 16),
+    (33, 4, 4.8, 2.6, -14), (45, 5, 5.9, 0.4, 10), (54, 3, 4.4, 3.1, -6),
+    (63, 6, 6.8, 1.2, 18), (72, 4, 5.1, 2.2, -12), (81, 5, 5.6, 0.2, 8),
+    (90, 3, 4.6, 1.9, -10), (96, 4, 6.1, 3.4, 6),
+]
+EMBERS_HTML = '<div class="fw-embers">' + "".join(
+    f'<span style="--x:{x}%;--s:{s}px;--d:{d}s;--delay:{delay}s;--drift:{drift}px"></span>'
+    for x, s, d, delay, drift in _EMBERS
+) + "</div>"
 
 
 def get_secret(name: str) -> str:
@@ -498,54 +619,36 @@ def get_secret(name: str) -> str:
         return ""
 
 
-def login_screen() -> bool:
-    if st.session_state.get("authenticated"):
+def welcome_screen() -> bool:
+    if st.session_state.get("entered"):
         return True
 
-    # Banner and form share one centred column so they line up exactly.
+    # Banner and button share one centred column so they line up exactly.
     _, form_col, _ = st.columns((1, 1.6, 1))
     form_col.markdown(
-        """
+        f"""
         <div class="hero hero-login">
-            <h1>🔥 Forge Firewatch</h1>
+            {EMBERS_HTML}
+            <h1><span class="fw-flame">🔥</span> Forge Firewatch</h1>
             <p>A clearer view of MODIS and VIIRS thermal-anomaly observations.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    with form_col, st.form("login"):
-        st.markdown("#### Sign in")
-        username = st.text_input("Username", placeholder="Your team username")
-        password = st.text_input(
-            "Password", type="password", placeholder="Your team password"
-        )
-        submitted = st.form_submit_button(
-            "Sign in", type="primary", use_container_width=True
-        )
-        if submitted:
-            expected_user = get_secret("FIREWATCH_USERNAME")
-            expected_password = get_secret("FIREWATCH_PASSWORD")
-            if not expected_user or not expected_password:
-                st.error(
-                    "Sign-in is not set up yet. Add FIREWATCH_USERNAME and "
-                    "FIREWATCH_PASSWORD to the app's secrets."
-                )
-            elif authenticate(username, password, expected_user, expected_password):
-                st.session_state["authenticated"] = True
-                st.session_state["username"] = username
-                st.rerun()
-            else:
-                st.error("Incorrect username or password. Please try again.")
+    if form_col.button("Enter", type="primary", use_container_width=True, key="enter"):
+        st.session_state["entered"] = True
+        st.rerun()
     return False
 
 
-if not login_screen():
+if not welcome_screen():
     st.stop()
 
 st.markdown(
-    """
+    f"""
     <div class="hero">
-        <h1>🔥 Forge Firewatch</h1>
+        {EMBERS_HTML}
+        <h1><span class="fw-flame">🔥</span> Forge Firewatch</h1>
         <p>Making satellite heat signals easier for everyone to explore,
         compare and understand.</p>
     </div>
@@ -755,19 +858,8 @@ with st.sidebar:
         )
 
 
-def sign_out_button() -> None:
-    """Draw Sign out as the last item in the sidebar."""
-    with st.sidebar:
-        with st.container(key="signout"):
-            if st.button("Sign out", use_container_width=True):
-                st.session_state["authenticated"] = False
-                st.session_state.pop("username", None)
-                st.rerun()
-
-
 def stop_page() -> None:
-    """Stop the page early, but keep the Sign out button available."""
-    sign_out_button()
+    """Stop the page early."""
     st.stop()
 
 
@@ -827,11 +919,17 @@ feedback_store = FeedbackStore(
     get_secret("FIREWATCH_FEEDBACK_PATH") or DEFAULT_FEEDBACK_PATH
 )
 reports = feedback_store.load()
+# Ground reports adjust attention levels for demo and live data, not uploads.
+reports_adjust_levels = data_source != "Upload CSV"
+report_site_threshold = FALSE_ALARMS_TO_LOWER if reports_adjust_levels else 1
 try:
     known_sources = pd.concat(
         [
             frame
-            for frame in (load_known_sources(KNOWN_SOURCES_PATH), false_alarm_sites(reports))
+            for frame in (
+                load_known_sources(KNOWN_SOURCES_PATH),
+                false_alarm_sites(reports, report_site_threshold),
+            )
             if not frame.empty
         ]
         or [load_known_sources(KNOWN_SOURCES_PATH)],
@@ -839,7 +937,7 @@ try:
     )
 except ValueError as error:
     st.warning(f"Known heat sources could not be loaded: {error}")
-    known_sources = false_alarm_sites(reports)
+    known_sources = false_alarm_sites(reports, report_site_threshold)
 data = flag_false_alarms(data, known_sources)
 if hide_false_alarms:
     data = data[data["false_alarm_reason"] == ""].copy()
@@ -868,9 +966,6 @@ if not data.empty:
             placeholder="All areas",
             help="Leave empty to show every area.",
         ) or region_options
-
-# Last sidebar element on a normal run.
-sign_out_button()
 
 if data.empty:
     filtered = data.copy()
@@ -918,6 +1013,8 @@ result["on_peat"] = (
 )
 events, result = build_events(result, EventConfig(link_distance_km=event_link_km))
 events = attach_feedback(score_events(events, peat_layer.available), reports)
+if reports_adjust_levels:
+    events = apply_ground_reports(events)
 
 towns_at_risk = pd.DataFrame(columns=["event_id", "town", "distance_km", "hours_away"])
 plumes = pd.DataFrame()
@@ -1188,10 +1285,15 @@ if section == "fire_areas":
         level_dots = events["attention_level"].map(
             {"High": "🔴", "Medium": "🟠", "Low": "⚪"}
         ).fillna("")
+        level_arrows = (
+            events["level_change"].map({"raised": " ↑", "lowered": " ↓"}).fillna("")
+            if "level_change" in events
+            else ""
+        )
         table = pd.DataFrame(
             {
                 "ID": events["event_id"],
-                "Attention": level_dots + " " + level_text,
+                "Attention": level_dots + " " + level_text + level_arrows,
                 "Score": events["attention_score"],
                 "Near": events["nearest_town"],
                 "Days": events["days_active"],
@@ -1199,10 +1301,16 @@ if section == "fire_areas":
                 "On peat": events["on_peat"],
                 "Last seen": _display_time(events["last_seen"]),
                 "Ground report": events["ground_report"].replace("", "–"),
+                "Reports": (
+                    "✅ " + events["confirmed_reports"].astype(str)
+                    + " · ❌ " + events["false_alarm_reports"].astype(str)
+                ),
             }
         )
         if not peat_layer.available:
             table = table.drop(columns="On peat")
+        if not reports_adjust_levels:
+            table = table.drop(columns="Reports")
         st.dataframe(
             table,
             hide_index=True,
@@ -1224,8 +1332,22 @@ if section == "fire_areas":
                 "On peat": st.column_config.CheckboxColumn(
                     help="Ticked when the fire is on peat soil (heavy haze)."
                 ),
+                "Attention": st.column_config.TextColumn(
+                    help=(
+                        "Level from the satellite score. ↑ or ↓ means ground "
+                        "reports moved it one step."
+                    )
+                ),
                 "Ground report": st.column_config.TextColumn(
                     help="Latest report from people on the ground, if any."
+                ),
+                "Reports": st.column_config.TextColumn(
+                    help=(
+                        "Confirmed-fire (✅) and false-alarm (❌) reports for this "
+                        f"area. {CONFIRMS_TO_RAISE} more confirmations than false "
+                        f"alarms raise the level one step; {FALSE_ALARMS_TO_LOWER} "
+                        "more false alarms than confirmations lower it one step."
+                    )
                 ),
                 "Last seen": st.column_config.TextColumn(
                     help="Displayed in UTC for consistent global comparison."
@@ -1242,10 +1364,20 @@ if section == "fire_areas":
         if st.session_state.pop("report_saved", False):
             st.success("Thank you. The report has been saved.")
         with st.expander("📝 Report what is happening on the ground"):
-            st.caption(
-                "Confirm a fire or mark a false alarm. False-alarm places are "
-                "flagged automatically in future data."
-            )
+            if reports_adjust_levels:
+                st.caption(
+                    "Confirm a fire or mark a false alarm. When confirmations "
+                    f"outnumber false alarms by {CONFIRMS_TO_RAISE}, the attention "
+                    "level goes up one step. When false alarms outnumber "
+                    f"confirmations by {FALSE_ALARMS_TO_LOWER}, it goes down one "
+                    "step and the place is flagged as a likely false alarm. "
+                    "Reports count within 2 km and 3 days of the fire."
+                )
+            else:
+                st.caption(
+                    "Confirm a fire or mark a false alarm. Reports are saved, but "
+                    "they do not change attention levels for uploaded files."
+                )
             with st.form("ground_report", clear_on_submit=True):
                 labels = {
                     f"{row.event_id} · near {row.nearest_town} · {row.attention_level}": row
@@ -1264,16 +1396,26 @@ if section == "fire_areas":
                 )
                 if st.form_submit_button("Submit report", type="primary"):
                     event = labels[choice]
-                    feedback_store.add(
-                        event.latitude,
-                        event.longitude,
-                        (event.last_seen + DISPLAY_UTC_OFFSET).date().isoformat(),
-                        verdict,
-                        note,
-                        st.session_state.get("username", ""),
-                    )
-                    st.session_state["report_saved"] = True
-                    st.rerun()
+                    # One report per fire area per visit, so a single person
+                    # cannot move a level alone by clicking repeatedly.
+                    report_key = (round(event.latitude, 2), round(event.longitude, 2))
+                    already = st.session_state.setdefault("reported_areas", set())
+                    if report_key in already:
+                        st.warning(
+                            "You have already reported this fire area during this "
+                            "visit. Thank you!"
+                        )
+                    else:
+                        already.add(report_key)
+                        feedback_store.add(
+                            event.latitude,
+                            event.longitude,
+                            (event.last_seen + DISPLAY_UTC_OFFSET).date().isoformat(),
+                            verdict,
+                            note,
+                        )
+                        st.session_state["report_saved"] = True
+                        st.rerun()
         if len(reports):
             with st.expander(f"Previous reports ({len(reports)})"):
                 st.dataframe(

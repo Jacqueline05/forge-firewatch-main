@@ -7,7 +7,7 @@ when a `FIRMS_MAP_KEY` is configured. Times are displayed in UTC.
 
 ## Dashboard layout
 
-- **Sign in** with the team username and password (Streamlit secrets).
+- **Welcome screen** with a single **Enter** button (no sign-in needed).
 - **Compact banner** with the project name and tagline.
 - **"Start here: what am I looking at?"** — a short guide, collapsed by
   default.
@@ -19,7 +19,7 @@ when a `FIRMS_MAP_KEY` is configured. Times are displayed in UTC.
   📘 Guide. Only the open section is drawn, so pages load
   quickly, and the switcher stays available even when a data source still
   needs setting up.
-- The sign-in banner and form share one centred column.
+- The welcome banner and Enter button share one centred column.
 - The dashboard is in English.
 
 ## ☰ Menu (settings)
@@ -48,9 +48,6 @@ settings) only affect 📍 Today, 🔥 Fire areas and 🛰️ Satellite signals.
 🎮 Haze Patrol and 📘 Guide they are greyed out with a 🔒 note,
 and the choices are kept for when you return.
 
-**Sign out** is always the last item at the bottom of the menu and works in
-every section and data mode.
-
 ## 📍 Today
 
 - **Headline numbers:** fire areas, high-attention areas, areas on peatland,
@@ -74,14 +71,16 @@ every section and data mode.
 ## 🔥 Fire areas
 
 - Table of all fire areas: area ID, attention level, score bar, nearest town,
-  days detected, seen by both satellites, on peat, last seen (UTC) and ground
-  report. Column headers have explanations on hover.
+  days detected, seen by both satellites, on peat, last seen (UTC), ground
+  report and report counts (✅ confirmed / ❌ false alarm, demo and live data
+  only). An ↑ or ↓ next to the attention level means ground reports moved it
+  one step. Column headers have explanations on hover.
 - **Download full table (CSV)** with every field, including spread direction
   and distance, detections per satellite and the reasons behind each score.
 - **Report what is happening on the ground** (folded form): choose a fire
-  area, mark it Confirmed fire / False alarm / Not sure, and add a note. The
-  signed-in username is recorded. Reports are kept as records and listed
-  below; false-alarm reports do not delete detections.
+  area, mark it Confirmed fire / False alarm / Not sure, and add a note.
+  Reports are kept as records and listed below; false-alarm reports do not
+  delete detections. Each fire area can be reported once per visit.
 
 ## 🛰️ Satellite signals
 
@@ -140,7 +139,9 @@ phones.
 2. **False-alarm filter** — flags detections that FIRMS marks as volcano,
    static industrial source or offshore (archive data), detections near
    places in `data/known_heat_sources.csv`, and places people reported as
-   false alarms (1 km radius).
+   false alarms (1 km radius). For demo and live data a place counts once
+   false-alarm reports there outnumber confirmed-fire reports by 3; for
+   uploaded files one false-alarm report is enough.
 3. **MODIS/VIIRS matching** — pairs signals within the chosen time and
    distance, nearest pairs first; each signal is paired at most once. Only
    records inside each other's time window are compared, so thousands of
@@ -163,7 +164,16 @@ phones.
    approximate arrival time. Demo mode uses an example south-west monsoon wind
    (12 km/h).
 8. **Ground reports** — attach to fire areas within 2 km and 3 days of the
-   report.
+   report. For demo and live data they can move the attention level one step
+   (the satellite score itself is unchanged), counting net reports:
+   confirmed-fire reports minus false-alarm reports, with Not sure ignored.
+   - Net **+2 or more** raises the level one step (Low → Medium, Medium →
+     High).
+   - Net **−3 or less** lowers it one step (High → Medium, Medium → Low).
+   - Lowering needs more agreement because wrongly downgrading a real fire is
+     the costlier mistake. Fire areas are re-sorted by the adjusted level.
+   - The thresholds are `CONFIRMS_TO_RAISE` and `FALSE_ALARMS_TO_LOWER` in
+     `src/firewatch/feedback.py`. Uploaded CSV files keep the satellite level.
 
 ## Look and feel
 
@@ -182,7 +192,6 @@ phones.
 
 | Setting | Where | Purpose |
 |---|---|---|
-| `FIREWATCH_USERNAME`, `FIREWATCH_PASSWORD` | `.streamlit/secrets.toml` | Team login |
 | `FIRMS_MAP_KEY` | `.streamlit/secrets.toml` | Live data |
 | `FIREWATCH_FEEDBACK_PATH` | `.streamlit/secrets.toml` | Where ground reports are saved (default `data/feedback.csv`) |
 | Peat map | `data/peatland.geojson` | Enables the peatland flag for live and uploaded data |
@@ -190,12 +199,12 @@ phones.
 
 ## Testing
 
-- 61 unit tests (pytest) covering data loading and FIRMS formats, matching
+- 82 unit tests (pytest) covering data loading and FIRMS formats, matching
   (including a check that the fast matcher gives the same pairs as a
   compare-everything method, and a 6,000-record speed test), fire areas,
   peatland, scoring, smoke direction, the daily summary in both languages,
   ground reports, false-alarm filtering, the Haze Patrol page, the FIRMS live data client
-  (with simulated responses), filters, map features and login.
+  (with simulated responses), filters and map features.
 - GitHub Actions runs lint (flake8) and tests on every push and pull request.
 
 ## Known limitations

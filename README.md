@@ -52,7 +52,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Configure team login
+### 4. Configure secrets (optional)
 
 Copy the example secrets file:
 
@@ -66,8 +66,8 @@ On macOS/Linux, use:
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 ```
 
-Edit `.streamlit/secrets.toml` and set the username and password shared by
-the project owner. Never commit this file to GitHub.
+Edit `.streamlit/secrets.toml` to add an optional NASA FIRMS key. Never commit
+this file to GitHub.
 
 ### 5. Start the dashboard
 
@@ -76,7 +76,7 @@ streamlit run app.py
 ```
 
 Open the local URL shown in the terminal, usually
-`http://localhost:8501`, then sign in with the configured team credentials.
+`http://localhost:8501`, then click **Enter**.
 
 ### 6. Run the quality checks
 
@@ -139,16 +139,10 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-### Configure team login
+### Opening the dashboard
 
-Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and set a
-team username and password. The real `secrets.toml` file is ignored by Git and
-must never be committed.
-
-For Streamlit Cloud, add `FIREWATCH_USERNAME` and `FIREWATCH_PASSWORD` under
-the app's **Secrets** settings. This login protects the dashboard interface;
-GitHub repository access is managed separately through private-repository
-collaborators.
+The dashboard opens on a welcome banner with a single **Enter** button; no
+username or password is needed.
 
 Run the checks:
 
@@ -179,8 +173,7 @@ flake8 app.py src tests
 │   ├── false_alarms.py                 # Known heat sources, FIRMS type
 │   ├── firms.py                        # NASA FIRMS live data API
 │   ├── places.py                       # Settlement labels and geography helpers
-│   ├── map_features.py                 # Map pairs and coverage circles
-│   └── auth.py                         # Team login
+│   └── map_features.py                 # Map pairs and coverage circles
 ├── tests/                              # Unit tests (pytest)
 ├── .github/workflows/ci.yml            # Lint and test automation
 └── docs/                               # Architecture and data notes

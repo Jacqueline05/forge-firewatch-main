@@ -2,7 +2,6 @@ import pandas as pd
 import pytest
 
 from src.firewatch.harmonize import MatchConfig, harmonize, validate_schema
-from src.firewatch.auth import authenticate
 
 
 def make_records():
@@ -96,14 +95,6 @@ def test_invalid_schema_is_rejected():
 
     with pytest.raises(ValueError, match="Missing required columns"):
         validate_schema(invalid)
-
-
-def test_authenticate_accepts_matching_credentials():
-    assert authenticate("team", "secret", "team", "secret")
-
-
-def test_authenticate_rejects_invalid_credentials():
-    assert not authenticate("team", "wrong", "team", "secret")
 
 
 def test_map_features_combine_matched_pair_at_midpoint():

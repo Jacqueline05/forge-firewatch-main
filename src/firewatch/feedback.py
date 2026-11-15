@@ -5,6 +5,7 @@ import csv
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .places import DISPLAY_UTC_OFFSET, haversine_km
@@ -23,6 +24,14 @@ VERDICTS = {
 MATCH_RADIUS_KM = 2.0
 # ...that were active within this many days of the reported date.
 MATCH_DAYS = 3
+
+# Ground reports can move a fire area's attention level by one step.
+# "Net" means confirmed-fire reports minus false-alarm reports; "Not sure"
+# counts as neither. Lowering needs more agreement than raising, because
+# wrongly downgrading a real fire costs more than checking one extra time.
+CONFIRMS_TO_RAISE = 2
+FALSE_ALARMS_TO_LOWER = 3
+LEVELS = ["Low", "Medium", "High"]
 
 
 class FeedbackStore:
@@ -73,6 +82,8 @@ def attach_feedback(events: pd.DataFrame, reports: pd.DataFrame) -> pd.DataFrame
     events = events.copy()
     events["ground_report"] = ""
     events["ground_note"] = ""
+    events["confirmed_reports"] = 0
+    events["false_alarm_reports"] = 0
     if events.empty or reports.empty:
         return events
 
@@ -90,15 +101,77 @@ def attach_feedback(events: pd.DataFrame, reports: pd.DataFrame) -> pd.DataFrame
         in_window = report_dates.between(first, last).to_numpy()
         matching = reports[near & in_window]
         if len(matching):
+            verdicts = matching["verdict"]
+            events.at[position, "confirmed_reports"] = int((verdicts == "confirmed_fire").sum())
+            events.at[position, "false_alarm_reports"] = int((verdicts == "false_alarm").sum())
             latest = matching.iloc[-1]
             events.at[position, "ground_report"] = VERDICTS.get(latest["verdict"], "")
             events.at[position, "ground_note"] = latest["note"]
     return events
 
 
-def false_alarm_sites(reports: pd.DataFrame) -> pd.DataFrame:
-    """Turn "false alarm" reports into known heat sources for future data."""
+def apply_ground_reports(events: pd.DataFrame) -> pd.DataFrame:
+    """Raise or lower ``attention_level`` one step from net ground reports.
+
+    Expects the columns from :func:`score_events` and :func:`attach_feedback`.
+    The satellite-based score is kept; ``satellite_level`` records the level
+    before reports and ``level_change`` is "raised", "lowered" or "".
+    """
+    events = events.copy()
+    events["satellite_level"] = events["attention_level"]
+    events["level_change"] = ""
+    if events.empty:
+        return events
+
+    net = events["confirmed_reports"] - events["false_alarm_reports"]
+    step = np.select([net >= CONFIRMS_TO_RAISE, net <= -FALSE_ALARMS_TO_LOWER], [1, -1], 0)
+    rank = events["attention_level"].map(LEVELS.index).to_numpy()
+    new_rank = np.clip(rank + step, 0, len(LEVELS) - 1)
+    events["attention_level"] = [LEVELS[i] for i in new_rank]
+    events.loc[new_rank > rank, "level_change"] = "raised"
+    events.loc[new_rank < rank, "level_change"] = "lowered"
+
+    raised = events["level_change"] == "raised"
+    lowered = events["level_change"] == "lowered"
+    confirms = events["confirmed_reports"].astype(str)
+    alarms = events["false_alarm_reports"].astype(str)
+    events.loc[raised, "reasons"] += " · raised by " + confirms[raised] + " confirmed-fire reports"
+    events.loc[lowered, "reasons"] += " · lowered by " + alarms[lowered] + " false-alarm reports"
+    if "reasons_ms" in events:
+        events.loc[raised, "reasons_ms"] += (
+            " · dinaikkan oleh " + confirms[raised] + " laporan kebakaran disahkan"
+        )
+        events.loc[lowered, "reasons_ms"] += (
+            " · diturunkan oleh " + alarms[lowered] + " laporan penggera palsu"
+        )
+
+    order = events["attention_level"].map(LEVELS.index)
+    return (
+        events.assign(_order=order)
+        .sort_values(["_order", "attention_score", "last_seen"], ascending=False)
+        .drop(columns="_order")
+        .reset_index(drop=True)
+    )
+
+
+def false_alarm_sites(reports: pd.DataFrame, min_net_reports: int = 1) -> pd.DataFrame:
+    """Turn "false alarm" reports into known heat sources for future data.
+
+    A false-alarm report only counts once false-alarm reports within
+    ``MATCH_RADIUS_KM`` outnumber confirmed-fire reports there by at least
+    ``min_net_reports``.
+    """
     false_alarms = reports[reports["verdict"] == "false_alarm"]
+    if min_net_reports > 1 and len(false_alarms):
+        latitudes = reports["latitude"].to_numpy(dtype=float)
+        longitudes = reports["longitude"].to_numpy(dtype=float)
+        sign = reports["verdict"].map({"false_alarm": 1, "confirmed_fire": -1}).fillna(0)
+        keep = [
+            sign[haversine_km(row.latitude, row.longitude, latitudes, longitudes)
+                 <= MATCH_RADIUS_KM].sum() >= min_net_reports
+            for row in false_alarms.itertuples()
+        ]
+        false_alarms = false_alarms[keep]
     return pd.DataFrame(
         {
             "name": false_alarms["note"].where(false_alarms["note"] != "", "Reported location"),
